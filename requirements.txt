@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+opencv-python-headless
+torch
+torchvision
+numpy
+requests
+firebase-admin
+python-multipart
+pandas
