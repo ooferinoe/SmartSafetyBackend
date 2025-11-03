@@ -9,3 +9,6 @@ requests
 firebase-admin
 python-multipart
 pandas
+seaborn
+tqdm
+ultralytics
