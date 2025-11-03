@@ -1,0 +1,240 @@
+{
+  "33DFQseyJvutg0UIxhTU": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "violationId": "lYlqQkqsluP7Imo9lXR3",
+    "uid": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "confidence": "42",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "33DFQseyJvutg0UIxhTU",
+    "timestamp": "2025-11-01T23:43:43.211687+08:00"
+  },
+  "6hWkJ3TW18VlzmCToRAU": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "eW9JiJxL5chO889kvUKx",
+    "confidence": "28",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "6hWkJ3TW18VlzmCToRAU",
+    "timestamp": "2025-11-01T23:43:25.512302+08:00"
+  },
+  "DlTWrSnVLS4sDEyNQDO5": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "GHHkGYjOMznmrgmO6vfq",
+    "confidence": "40",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "DlTWrSnVLS4sDEyNQDO5",
+    "timestamp": "2025-11-01T23:43:48.554039+08:00"
+  },
+  "E1HrOr6Q7erOrxMBBdbL": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "Ynj8kMxMeYWy2ywW5XOH",
+    "confidence": "31",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "E1HrOr6Q7erOrxMBBdbL",
+    "timestamp": "2025-11-01T23:42:59.760559+08:00"
+  },
+  "G5eBA7lffu4S9Qc0Ph0A": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "aVq7Tknxp9OLCysjfPNF",
+    "confidence": "30",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "G5eBA7lffu4S9Qc0Ph0A",
+    "timestamp": "2025-11-01T23:43:34.291664+08:00"
+  },
+  "JzqTvNAXe3fQUdetTFvJ": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "azVvNIdN9l53CeoC49qq",
+    "confidence": "42",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "JzqTvNAXe3fQUdetTFvJ",
+    "timestamp": "2025-11-01T23:43:52.015289+08:00"
+  },
+  "QVN5CfsiaxooVSbmOLP5": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "WJ5I8aEotyoxtrMslzZz",
+    "confidence": "31",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Gloves",
+    "date": "11/01/2025",
+    "violationType": "No Safety Gloves",
+    "alertId": "QVN5CfsiaxooVSbmOLP5",
+    "timestamp": "2025-11-01T23:44:07.595338+08:00"
+  },
+  "c3aHzvdZRGqqV0inEPrG": {
+    "alertSentTo": [
+      "rodkirstenbayran@gmail.com"
+    ],
+    "userId": "jCWECxxIqOgydAVjCNoqMR5vqow1",
+    "violationId": "EOlaHNWWxF6h24acwzon",
+    "confidence": "39",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "c3aHzvdZRGqqV0inEPrG",
+    "timestamp": "2025-11-01T23:24:54.288299+08:00"
+  },
+  "fCNx6wK5IagEWpPwcGl9": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "XqOaJdDjpfDUwr8tiqUH",
+    "confidence": "38",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "fCNx6wK5IagEWpPwcGl9",
+    "timestamp": "2025-11-01T23:43:30.316529+08:00"
+  },
+  "hd0uldmJ3ZpA6Rdh3IFh": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "6PitrvFlOxabEbP2RG0m",
+    "confidence": "38",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "hd0uldmJ3ZpA6Rdh3IFh",
+    "timestamp": "2025-11-01T23:43:18.030358+08:00"
+  },
+  "jFlxCSNVq0pkw8CPbgVs": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "9pS6HSuebmiZEyzZbU34",
+    "confidence": "34",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "jFlxCSNVq0pkw8CPbgVs",
+    "timestamp": "2025-11-01T23:43:39.627287+08:00"
+  },
+  "jJy8zKhszPZ94PNyvS1r": {
+    "alertSentTo": [
+      "rodkirstenbayran@gmail.com"
+    ],
+    "userId": "jCWECxxIqOgydAVjCNoqMR5vqow1",
+    "violationId": "iOcfP21J4Rmlkmnje6n5",
+    "confidence": "29",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "jJy8zKhszPZ94PNyvS1r",
+    "timestamp": "2025-11-01T23:24:44.320483+08:00"
+  },
+  "nvQEx9Fa5ZbDgWbhUr0h": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "YXQ3le6WBizPhGoFKbjj",
+    "confidence": "45",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "nvQEx9Fa5ZbDgWbhUr0h",
+    "timestamp": "2025-11-01T23:43:11.660271+08:00"
+  },
+  "suBvSbtagwBTlKtKOmrM": {
+    "alertSentTo": [
+      "rodkirstenbayran@gmail.com"
+    ],
+    "userId": "jCWECxxIqOgydAVjCNoqMR5vqow1",
+    "violationId": "wV33MgVBKDLhrWOrBFZh",
+    "confidence": "32",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "suBvSbtagwBTlKtKOmrM",
+    "timestamp": "2025-11-01T23:24:48.444394+08:00"
+  },
+  "uNYUp5CN5p82rs0XD9pJ": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "CqNz4REYwzgVX7FT0KSp",
+    "confidence": "28",
+    "status": "Unresolved",
+    "subject": "Violation Alert: Improper Safety Gloves",
+    "date": "11/01/2025",
+    "violationType": "Improper Safety Gloves",
+    "alertId": "uNYUp5CN5p82rs0XD9pJ",
+    "timestamp": "2025-11-01T23:43:21.486918+08:00"
+  },
+  "usxuZ6TLPFYBz6Sfta62": {
+    "alertSentTo": [
+      "danieljosesagun@gmail.com"
+    ],
+    "userId": "1dtQof4hcIe7W6N6yB05ZMxYZcG3",
+    "violationId": "VoiO4f2oAvzyUEBm9r23",
+    "confidence": "43",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Hard Hat",
+    "date": "11/01/2025",
+    "violationType": "No Hard Hat",
+    "alertId": "usxuZ6TLPFYBz6Sfta62",
+    "timestamp": "2025-11-01T23:43:07.932543+08:00"
+  },
+  "vGP2ZNZvgfC323BEaXq8": {
+    "alertSentTo": [
+      "rodkirstenbayran@gmail.com"
+    ],
+    "userId": "jCWECxxIqOgydAVjCNoqMR5vqow1",
+    "violationId": "ZF0gzxpbm2GedXanbPtT",
+    "confidence": "40",
+    "status": "Unresolved",
+    "subject": "Violation Alert: No Safety Glasses",
+    "date": "11/01/2025",
+    "violationType": "No Safety Glasses",
+    "alertId": "vGP2ZNZvgfC323BEaXq8",
+    "timestamp": "2025-11-01T23:25:03.929731+08:00"
+  }
+}

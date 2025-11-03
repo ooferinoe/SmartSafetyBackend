@@ -1,52 +1,128 @@
-from fastapi import APIRouter, Request
+import logging
+import time
+import threading
+from typing import Optional, Tuple, Dict, Any
+from fastapi import APIRouter, Request, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 import cv2
-from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL
-from services.model_client import predict_frame_via_service
-from services.storage import add_violation, query_violations_by_timestamp
-from services.emailer import send_alert
-import datetime
-from zoneinfo import ZoneInfo
 import requests
 import numpy as np
+from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL
+from services.model_client import predict_frame_via_service
+from services.processor import process_frame_from_model_response
+from services.storage import add_violation, query_violations_by_timestamp
+from services.emailer import send_alert
 
+logger = logging.getLogger("routes")
 router = APIRouter()
 
-@router.get("/get_frame_detections")
-def get_frame_detections():
-    # fetch a single JPEG snapshot from STREAM_URL (preferred for cloud hosts)
+# simple in-memory cache for last model response (thread-safe)
+_model_cache = {"resp": None, "ts": 0.0}
+_model_cache_lock = threading.Lock()
+_MODEL_TTL = 2.0  # seconds, adjust as needed
+
+
+def _get_frame_and_run_model() -> Tuple[Optional[Dict[str, Any]], Optional[JSONResponse]]:
+    """
+    Fetch frame and run model ONCE, but reuse cached model_resp for _MODEL_TTL seconds.
+    Returns (model_response, None) on success, or (None, error_response) on failure.
+    """
+    now = time.time()
+    with _model_cache_lock:
+        if _model_cache["resp"] is not None and (now - _model_cache["ts"]) <= _MODEL_TTL:
+            return _model_cache["resp"], None
+
+    # fetch frame + call model (only when cache expired)
     try:
         r = requests.get(STREAM_URL, timeout=5)
         r.raise_for_status()
         jpg = np.frombuffer(r.content, dtype=np.uint8)
         frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
         if frame is None:
-            return JSONResponse({"error": "failed to decode frame"}, status_code=500)
+            raise Exception("failed to decode frame")
     except Exception as e:
-        return JSONResponse({"error": f"Failed to fetch frame: {e}"}, status_code=500)
+        logger.exception("Helper: failed to fetch frame")
+        return None, JSONResponse({"error": f"Failed to fetch frame: {e}"}, status_code=500)
 
-    # proxy to model-service
-    resp = predict_frame_via_service(MODEL_SERVICE_URL, frame)
-    return JSONResponse(resp)
+    try:
+        model_resp = predict_frame_via_service(MODEL_SERVICE_URL, frame)
+    except Exception as e:
+        logger.exception("Helper: model call failed")
+        return None, JSONResponse({"error": f"Model call failed: {e}"}, status_code=500)
+
+    # store in cache
+    with _model_cache_lock:
+        _model_cache["resp"] = model_resp
+        _model_cache["ts"] = time.time()
+
+    return model_resp, None
+
+
+# FastAPI dependency wrapper that returns cached model response or raises error
+async def get_model_response():
+    model_resp, error = _get_frame_and_run_model()
+    if error:
+        # propagate the JSONResponse as exception (FastAPI will handle it)
+        raise error
+    return model_resp
+
+
+ModelResponse = Depends(get_model_response)
+
+
+@router.get("/get_frame_detections")
+def get_frame_detections(model_resp: dict = ModelResponse):
+    """
+    Returns the raw model response.
+    The 'model_resp' is provided by the cached dependency.
+    """
+    return JSONResponse(model_resp)
+
 
 @router.get("/detect_ipcam")
-def detect_ipcam():
-    # similar to previous get_frame_detections but persists to firestore using storage helpers
-    # implement detection -> filter -> store logic here (use services.storage.add_violation)
-    return JSONResponse({"message": "implement detect_ipcam logic"})
+def detect_ipcam(background_tasks: BackgroundTasks, model_resp: dict = ModelResponse):
+    """
+    Processes the cached model response to find and log violations.
+    Processor handles normalization, dedupe and enqueue alerts via background_tasks.
+    """
+    try:
+        result = process_frame_from_model_response(model_resp, background_tasks=background_tasks)
+        violations = result.get("violations", [])
+        # log unresolved violations only
+        for v in violations:
+            logger.info(
+                "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
+                v.get("violationType") or v.get("type"),
+                v.get("confidence"),
+                v.get("violationId"),
+                v.get("footageId") or v.get("camera_id", CAMERA_ID),
+            )
+        return JSONResponse({
+            "violations_stored": result.get("violations_stored", 0),
+            "unresolved": [v.get("violationType") or v.get("type") for v in violations]
+        })
+    except JSONResponse as jr:
+        # propagated error from dependency
+        raise jr
+    except Exception as e:
+        logger.exception("detect_ipcam: processing failed")
+        return JSONResponse({"error": f"processing failed: {e}"}, status_code=500)
+
 
 @router.post("/send_alert_email")
 async def post_send_alert_email(request: Request):
     data = await request.json()
-    to = data.get("to_email") or data.get("alertSentTo")
-    violation_type = data.get("violationType") or data.get("violation_type")
+    to = data.get("to_email") or data.get("alertSentTo") or data.get("to")
+    violation_type = data.get("violationType") or data.get("violation_type") or data.get("type")
     confidence = data.get("confidence")
     timestamp = data.get("timestamp") or data.get("date_time")
     try:
         send_alert(to, violation_type, confidence, timestamp)
         return JSONResponse({"success": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.exception("send_alert_email failed")
+        return JSONResponse({"error": f"send_alert failed: {e}"}, status_code=500)
+
 
 @router.get("/health")
 def health_check():
