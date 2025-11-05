@@ -1,13 +1,38 @@
 from fastapi import FastAPI, UploadFile, File
-import uvicorn
+import uvicorn, asyncio, cv2, os, numpy as np
 from fastapi.middleware.cors import CORSMiddleware
 from routes import router
 from services.model_client import predict_frame_via_service
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+async def monitor_camera_stream(camera_url):
+    print(f"Starting to monitor stream: {camera_url}")
+    cap = cv2.VideoCapture(camera_url)
+    while True:
+        success, frame = cap.read()
+        if not success:
+            print("Stream ended or failed. Reconnecting...")
+            await asyncio.sleep(5)
+            cap.release()
+            cap = cv2.VideoCapture(camera_url)
+            continue
+        _, image_bytes = cv2.imencode('.jpg', frame)
+        await run_model_detection(image_bytes.tobytes())
+        await asyncio.sleep(0.5)
+        
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    PRODUCTION_CAMERA_URL = os.environ.get("STREAM_URL", "rtsp://192.168.1.101/stream")
+    print("Starting background camera monitor...")
+    asyncio.create_task(monitor_camera_stream(PRODUCTION_CAMERA_URL))
+    yield
+    # Shutdown logic (if needed)
+    
+app = FastAPI(lifespan=lifespan)
 
 origins = [
-    "https://stgsmartsafety.netlify.app/",
+    "https://smartsafetystg.netlify.app/",
 ]
 
 app.add_middleware(
