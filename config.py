@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "http://localhost:8000")
+MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "https://ooferinoe-smart-safety-model.hf.space/predict")
 STREAM_URL = os.getenv("STREAM_URL", "http://192.168.1.11:8080/video")
 CAMERA_ID = os.getenv("CAMERA_ID", "CAM 001")
 
