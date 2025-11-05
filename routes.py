@@ -2,7 +2,7 @@ import logging
 import time
 import threading
 from typing import Optional, Tuple, Dict, Any
-from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response
+from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query
 from fastapi.responses import JSONResponse
 import cv2
 import requests
