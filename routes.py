@@ -1,12 +1,7 @@
-import logging
-import time
-import threading
+import logging, time, threading, cv2, requests, numpy as np
 from typing import Optional, Tuple, Dict, Any
 from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query
 from fastapi.responses import JSONResponse
-import cv2
-import requests
-import numpy as np
 from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
@@ -133,6 +128,18 @@ def detect_ppe(STREAM_URL: str = Query(...)):
     cap.release()
     if not ret or frame is None:
         return {"error": "Failed to capture frame from IP camera."}
+    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
+    return result
+
+from fastapi import UploadFile, File
+
+@router.post("/detect")
+async def detect_ppe_violation(file: UploadFile = File(...)):
+    image_bytes = await file.read()
+    jpg = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
+    if frame is None:
+        return {"error": "Failed to decode image"}
     result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
     return result
 
