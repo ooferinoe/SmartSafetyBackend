@@ -35,7 +35,7 @@ from contextlib import asynccontextmanager
 #     yield
 #     # Shutdown logic (if needed)
     
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 origins = [
     "https://smartsafetystg.netlify.app/",
