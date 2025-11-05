@@ -2,7 +2,7 @@ import logging
 import time
 import threading
 from typing import Optional, Tuple, Dict, Any
-from fastapi import APIRouter, Request, BackgroundTasks, Depends
+from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response
 from fastapi.responses import JSONResponse
 import cv2
 import requests
@@ -122,6 +122,19 @@ async def post_send_alert_email(request: Request):
     except Exception as e:
         logger.exception("send_alert_email failed")
         return JSONResponse({"error": f"send_alert failed: {e}"}, status_code=500)
+    
+@router.get("/detect_ppe")
+def detect_ppe(STREAM_URL: str = Query(...)):
+    """
+    Captures a frame from the IP camera, sends it to the model API, and returns detection results.
+    """
+    cap = cv2.VideoCapture(STREAM_URL)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret or frame is None:
+        return {"error": "Failed to capture frame from IP camera."}
+    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
+    return result
 
 
 @router.get("/health")
