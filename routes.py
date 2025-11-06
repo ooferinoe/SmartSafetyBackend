@@ -1,6 +1,6 @@
 import logging, time, threading, cv2, requests, numpy as np
 from typing import Optional, Tuple, Dict, Any
-from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query
+from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL
 from services.model_client import predict_frame_via_service
@@ -65,13 +65,13 @@ async def get_model_response():
 ModelResponse = Depends(get_model_response)
 
 
-@router.get("/get_frame_detections")
-def get_frame_detections(model_resp: dict = ModelResponse):
-    """
-    Returns the raw model response.
-    The 'model_resp' is provided by the cached dependency.
-    """
-    return JSONResponse(model_resp)
+# @router.get("/get_frame_detections")
+# def get_frame_detections(model_resp: dict = ModelResponse):
+#     """
+#     Returns the raw model response.
+#     The 'model_resp' is provided by the cached dependency.
+#     """
+#     return JSONResponse(model_resp)
 
 
 @router.get("/detect_ipcam")
@@ -131,7 +131,6 @@ def detect_ppe(STREAM_URL: str = Query(...)):
     result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
     return result
 
-from fastapi import UploadFile, File
 
 @router.post("/detect")
 async def detect_ppe_violation(file: UploadFile = File(...)):
