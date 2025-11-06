@@ -37,9 +37,7 @@ from contextlib import asynccontextmanager
     
 app = FastAPI()
 
-origins = [
-    "https://smartsafetystg.netlify.app/",
-]
+origins = ["https://smartsafetystg.netlify.app"]
 
 app.add_middleware(
     CORSMiddleware,
