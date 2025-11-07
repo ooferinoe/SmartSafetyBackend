@@ -74,14 +74,27 @@ ModelResponse = Depends(get_model_response)
 #     return JSONResponse(model_resp)
 
 
+@router.post("/detect")
+async def detect_ppe_violation(file: UploadFile = File(...)):
+    image_bytes = await file.read()
+    jpg = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
+    if frame is None:
+        return {"error": "Failed to decode image"}
+    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
+    global latest_webcam_detection
+    latest_webcam_detection = result
+    return result
+
+# , model_resp: dict = ModelResponse ------------v
 @router.get("/detect_ipcam")
-def detect_ipcam(background_tasks: BackgroundTasks, model_resp: dict = ModelResponse):
+def detect_ipcam(background_tasks: BackgroundTasks):
     """
     Processes the cached model response to find and log violations.
     Processor handles normalization, dedupe and enqueue alerts via background_tasks.
     """
     try:
-        result = process_frame_from_model_response(model_resp, background_tasks=background_tasks)
+        result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
         violations = result.get("violations", [])
         # log unresolved violations only
         for v in violations:
@@ -130,18 +143,6 @@ def detect_ppe(STREAM_URL: str = Query(...)):
         return {"error": "Failed to capture frame from IP camera."}
     result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
     return result
-
-
-@router.post("/detect")
-async def detect_ppe_violation(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    jpg = np.frombuffer(image_bytes, dtype=np.uint8)
-    frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
-    if frame is None:
-        return {"error": "Failed to decode image"}
-    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
-    return result
-
 
 @router.get("/health")
 def health_check():
