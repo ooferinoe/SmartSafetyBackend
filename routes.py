@@ -7,6 +7,10 @@ from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
 from services.storage import add_violation, query_violations_by_timestamp
 from services.emailer import send_alert
+from pydantic import BaseModel
+from fastapi import HTTPException
+from firebase_admin import firestore
+from datetime import datetime, timezone
 
 logger = logging.getLogger("routes")
 router = APIRouter()
@@ -147,3 +151,44 @@ def detect_ppe(STREAM_URL: str = Query(...)):
 @router.get("/health")
 def health_check():
     return JSONResponse({"status": "healthy"})
+
+# --- Alert status update route ---
+# Assumes Firestore client 'db' is initialized elsewhere in your codebase
+class StatusUpdate(BaseModel):
+    status: str
+    remarks: str = None
+
+@router.patch("/alerts/{alert_id}/status")
+async def update_alert_status(alert_id: str, payload: StatusUpdate):
+    """
+    Update alert status.
+    - Acknowledge: allowed without remarks (sets acknowledgedAt)
+    - Resolved: requires remarks (sets resolvedAt and saves remarks)
+    """
+    ref = db.collection("alerts").document(alert_id)
+    doc = ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    now_iso = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+    update = {}
+    s = payload.status
+
+    if s == "Acknowledge":
+        update["status"] = "Acknowledge"
+        update["acknowledgedAt"] = now_iso
+    elif s == "Resolved":
+        if not payload.remarks or not payload.remarks.strip():
+            raise HTTPException(status_code=400, detail="Remarks required to resolve")
+        update["status"] = "Resolved"
+        update["remarks"] = payload.remarks.strip()
+        update["resolvedAt"] = now_iso
+    else:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    try:
+        ref.update(update)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"ok": True, "status": update["status"]}
