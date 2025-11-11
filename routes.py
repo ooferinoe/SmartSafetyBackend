@@ -9,7 +9,12 @@ from services.storage import add_violation, query_violations_by_timestamp
 from services.emailer import send_alert
 from pydantic import BaseModel
 from fastapi import HTTPException
-from firebase_admin import firestore
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+cred = credentials.Certificate("serviceAccountKey.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 from datetime import datetime, timezone
 
 logger = logging.getLogger("routes")
