@@ -13,9 +13,14 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 cred = credentials.Certificate("serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 db = firestore.client()
 from datetime import datetime, timezone
+
+class StatusUpdate(BaseModel):
+    status: str
+    remarks: str = None
 
 logger = logging.getLogger("routes")
 router = APIRouter()
@@ -143,37 +148,50 @@ async def post_send_alert_email(request: Request):
 @router.get("/detect_ppe")
 def detect_ppe(STREAM_URL: str = Query(...)):
     """
-    Captures a frame from the IP camera, sends it to the model API, and returns detection results.
+    Captures a frame from the IP camera (supports both HTTP image and RTSP stream), sends it to the model API, and returns detection results.
     """
-    cap = cv2.VideoCapture(STREAM_URL)
-    ret, frame = cap.read()
-    cap.release()
-    if not ret or frame is None:
-        return {"error": "Failed to capture frame from IP camera."}
+    frame = None
+    if STREAM_URL.lower().startswith("http"):
+        try:
+            r = requests.get(STREAM_URL, timeout=5)
+            r.raise_for_status()
+            jpg = np.frombuffer(r.content, dtype=np.uint8)
+            frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
+            if frame is None:
+                return {"error": "Failed to decode image from HTTP URL.", "details": f"Content length: {len(r.content)}"}
+        except requests.exceptions.ConnectionError as ce:
+            return {"error": "Connection error to camera URL.", "details": str(ce)}
+        except requests.exceptions.Timeout as te:
+            return {"error": "Timeout when connecting to camera URL.", "details": str(te)}
+        except requests.exceptions.RequestException as re:
+            return {"error": "Request error when connecting to camera URL.", "details": str(re)}
+        except Exception as e:
+            return {"error": f"Failed to fetch image from HTTP URL: {e}", "details": str(e)}
+    elif STREAM_URL.lower().startswith("rtsp"):
+        cap = cv2.VideoCapture(STREAM_URL)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret or frame is None:
+            return {"error": "Failed to capture frame from RTSP stream."}
+    else:
+        return {"error": "Unsupported STREAM_URL protocol. Use http or rtsp."}
+
     result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
     return result
 
-@router.get("/health")
-def health_check():
-    return JSONResponse({"status": "healthy"})
 
-# --- Alert status update route ---
-# Assumes Firestore client 'db' is initialized elsewhere in your codebase
-class StatusUpdate(BaseModel):
-    status: str
-    remarks: str = None
-
-@router.patch("/alerts/{alert_id}/status")
-async def update_alert_status(alert_id: str, payload: StatusUpdate):
+# --- Violation status update route ---
+@router.patch("/violations/{violation_id}/status")
+async def update_violation_status(violation_id: str, payload: StatusUpdate):
     """
-    Update alert status.
+    Update violation status and remarks directly in the violations collection.
     - Acknowledge: allowed without remarks (sets acknowledgedAt)
     - Resolved: requires remarks (sets resolvedAt and saves remarks)
     """
-    ref = db.collection("alerts").document(alert_id)
+    ref = db.collection("violations").document(violation_id)
     doc = ref.get()
     if not doc.exists:
-        raise HTTPException(status_code=404, detail="Alert not found")
+        raise HTTPException(status_code=404, detail="Violation not found")
 
     now_iso = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
     update = {}
@@ -186,8 +204,8 @@ async def update_alert_status(alert_id: str, payload: StatusUpdate):
         if not payload.remarks or not payload.remarks.strip():
             raise HTTPException(status_code=400, detail="Remarks required to resolve")
         update["status"] = "Resolved"
-        update["remarks"] = payload.remarks.strip()
         update["resolvedAt"] = now_iso
+        update["remarks"] = payload.remarks.strip()
     else:
         raise HTTPException(status_code=400, detail="Invalid status")
 
@@ -197,3 +215,8 @@ async def update_alert_status(alert_id: str, payload: StatusUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"ok": True, "status": update["status"]}
+
+@router.get("/health")
+def health_check():
+    return JSONResponse({"status": "healthy"})
+
