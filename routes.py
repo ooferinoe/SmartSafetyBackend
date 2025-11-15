@@ -6,7 +6,6 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Import shared objects from shared.py
 from shared import model, db, violations_ref, STREAM_URL, UNRESOLVED_CLASSES, cloud_name, GMAIL_USER, GMAIL_PASS
 
 router = APIRouter()

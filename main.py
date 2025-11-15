@@ -3,7 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from shared import model, db, violations_ref, STREAM_URL, UNRESOLVED_CLASSES, cloud_name, GMAIL_USER, GMAIL_PASS
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware,
+                   allow_origins=["*"],
+                   allow_credentials=True,
+                   allow_methods=["*"],
+                   allow_headers=["*"])
 
 from routes import router
 app.include_router(router)
