@@ -8,21 +8,28 @@ from services.emailer import send_alert
 logger = logging.getLogger("services.processor")
 
 
-# classes
 
-DONT_USE_CLASSES = {
-    'Hard Hat',
-    'Reflectorized Vest',
-    'Safety Glasses',
-    'Safety Gloves',
-    'Safety Shoes',
-    'Head',
-    'Properly-worn hard hat'
+
+
+COMPLIANCE_CLASSES = {
+    'Proper Hard Hat', 
+    'Proper Reflectorized Vest',
+    'Proper Safety Glasses',
+    'Proper Safety Gloves',
+    'Proper Safety Shoes'
 }
 
-UNRESOLVED_CLASSES = {
-    'Improper Hard Hat','Improper Safety Glasses','Improper Safety Gloves','Improper Safety Shoes',
-    'No Hard Hat','No Reflectorized Vest','No Safety Glasses','No Safety Gloves'
+NONCOMPLIANCE_CLASSES = {
+    'Improper Hard Hat',
+    'Improper Safety Glasses',
+    'Improper Safety Gloves',
+    'Improper Safety Shoes',
+    'Improper Reflectorized Vest',
+    'Non-PPE Hat',
+    'No Hard Hat',
+    'No Reflectorized Vest',
+    'No Safety Glasses',
+    'No Safety Gloves'
 }
 
 
@@ -76,18 +83,14 @@ def normalize_detections(resp):
 
         if "xmin" in d and "ymin" in d and "xmax" in d and "ymax" in d:
             xmin, ymin, xmax, ymax = d["xmin"], d["ymin"], d["xmax"], d["ymax"]
-
         elif "bbox" in d and isinstance(d["bbox"], (list,tuple)) and len(d["bbox"])>=4:
             xmin,ymin,xmax,ymax = d["bbox"][:4]
-
         elif all(k in d for k in ("x","y","w","h")):
             xmin = d["x"]; ymin = d["y"]; xmax = d["x"] + d["w"]; ymax = d["y"] + d["h"]
-
         else:
             continue
 
-        if name in DONT_USE_CLASSES:
-            continue
+
 
         out.append({
             "name": name,
@@ -97,7 +100,6 @@ def normalize_detections(resp):
             "xmax": float(xmax),
             "ymax": float(ymax)
         })
-
     return out
 
 
@@ -110,8 +112,9 @@ def process_frame_from_model_response(model_resp: dict, background_tasks=None, d
     filtered = filter_overlaps(detections)
     now_iso = datetime.datetime.now(ZoneInfo(TZ)).isoformat() if TZ else datetime.datetime.utcnow().isoformat()
     violations = []
+    compliance = []
     for det in filtered:
-        if det["name"] in UNRESOLVED_CLASSES:
+        if det["name"] in NONCOMPLIANCE_CLASSES:
             confidence_pct = int(round(det["confidence"] * 100)) if det["confidence"] <= 1 else int(round(det["confidence"]))
             doc = {
                 "type": det["name"],
@@ -124,11 +127,16 @@ def process_frame_from_model_response(model_resp: dict, background_tasks=None, d
                 "footageId": CAMERA_ID
             }
             doc_id = add_violation(doc, dedupe_window_seconds=dedupe_window_seconds)
-            # add_violation returns existing id if deduped
             if doc_id:
-                # if we created/confirmed a doc, collect for reporting/alerts
                 violations.append({**doc, "violationId": doc_id})
                 if background_tasks is not None:
                     background_tasks.add_task(send_alert, ["smartsafety.alerts@gmail.com"], det["name"], confidence_pct, now_iso)
-    logger.debug("process_frame_from_model_response: unresolved=%d", len(violations))
-    return {"violations_stored": len(violations), "violations": violations}
+        elif det["name"] in COMPLIANCE_CLASSES:
+            compliance.append(det)
+    logger.debug("process_frame_from_model_response: compliance=%d, noncompliance=%d", len(compliance), len(violations))
+    return {
+        "violations_stored": len(violations),
+        "violations": violations,
+        "compliance": compliance,
+        "total_detections": len(filtered)
+    }
