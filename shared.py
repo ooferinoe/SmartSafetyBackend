@@ -19,4 +19,5 @@ cred = credentials.Certificate("serviceAccountKey.json")
 initialize_app(cred)
 db = firestore.client()
 violations_ref = db.collection("violations")
-STREAM_URL = "http://192.168.1.6:8080/video"
+STREAM_URL = "http://192.168.8.100:8000/video"
+UNRESOLVED_CLASSES = { 'Improper Hard Hat', 'Improper Safety Glasses', 'Improper Safety Gloves', 'Improper Safety Shoes', 'No Hard Hat', 'No Reflectorized Vest', 'No Safety Glasses', 'No Safety Gloves' }
