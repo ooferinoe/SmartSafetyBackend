@@ -7,7 +7,7 @@ MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "https://ooferinoe-smart-safe
 STREAM_URL = os.getenv("STREAM_URL", "http://192.168.8.100:8000/video")
 CAMERA_ID = os.getenv("CAMERA_ID", "CAM 001")
 
-FIREBASE_CRED = os.getenv("FIREBASE_CRED", "serviceAccountKey.json")
+FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "serviceAccountKey.json")
 
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")

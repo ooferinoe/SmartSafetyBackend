@@ -1,20 +1,21 @@
 from firebase_admin import credentials, firestore, initialize_app
-from config import FIREBASE_CRED
+from config import FIREBASE_CRED_PATH
 import os
-import json
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
 
-# initialize once
-# FIREBASE_CRED can be a path to a json file or the JSON text itself (useful for Railway secrets)
-if os.path.exists(FIREBASE_CRED):
-    cred = credentials.Certificate(FIREBASE_CRED)
-else:
-    # assume FIREBASE_CRED contains JSON text
-    cred_dict = json.loads(FIREBASE_CRED)
-    cred = credentials.Certificate(cred_dict)
+# Check if the variable was set at all
+if not FIREBASE_CRED_PATH:
+    raise ValueError("FIREBASE_CRED_PATH environment variable is not set.")
 
+# Check if the file at that path actually exists
+if not os.path.exists(FIREBASE_CRED_PATH):
+    raise FileNotFoundError(f"Firebase credential file not found at: {FIREBASE_CRED_PATH}")
+
+# Initialize app from the path. This now works for both local and Render.
+cred = credentials.Certificate(FIREBASE_CRED_PATH)
 initialize_app(cred)
+
 db = firestore.client()
 violations_ref = db.collection("violations")
 
