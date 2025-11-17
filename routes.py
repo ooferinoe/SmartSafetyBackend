@@ -64,13 +64,14 @@ def final_upload_and_update(temp_video_path, violation_docs):
     finally:
         os.remove(temp_video_path)
         print("INFO (Thread): Upload task finished and temp file deleted.")
-        
+         
 @router.post("/upload_video")
 async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
     """
     Records a short video from the webcam, uploads to Cloudinary, and updates violation docs with footage URL.
     Accepts a list of violation document IDs to update.
     """
+    
     cap = cv2.VideoCapture(STREAM_URL)
     if not cap.isOpened():
         return JSONResponse({"error": "Failed to open webcam stream."}, status_code=500)
