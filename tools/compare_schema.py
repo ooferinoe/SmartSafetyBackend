@@ -3,14 +3,14 @@ from typing import Any, Dict
 from firebase_admin import credentials, firestore, initialize_app
 import datetime
 
-FIREBASE_CRED = os.getenv("FIREBASE_CRED", "")
-if not FIREBASE_CRED:
-    print("Set FIREBASE_CRED env var to service account path or JSON text"); sys.exit(1)
+FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "")
+if not FIREBASE_CRED_PATH:
+    print("Set FIREBASE_CRED_PATH env var to service account path or JSON text"); sys.exit(1)
 
-if os.path.exists(FIREBASE_CRED):
-    cred = credentials.Certificate(FIREBASE_CRED)
+if os.path.exists(FIREBASE_CRED_PATH):
+    cred = credentials.Certificate(FIREBASE_CRED_PATH)
 else:
-    cred = credentials.Certificate(json.loads(FIREBASE_CRED))
+    cred = credentials.Certificate(json.loads(FIREBASE_CRED_PATH))
 
 initialize_app(cred)
 db = firestore.client()

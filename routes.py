@@ -22,8 +22,8 @@ cloudinary.config(
     secure=True
 )
 
-from config import FIREBASE_CRED, GMAIL_USER, GMAIL_PASS
-cred = credentials.Certificate(FIREBASE_CRED)
+from config import FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
+cred = credentials.Certificate(FIREBASE_CRED_PATH)
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()

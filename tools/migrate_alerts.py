@@ -1,14 +1,14 @@
 import os, json, argparse
 from firebase_admin import credentials, firestore, initialize_app, auth
 
-FIREBASE_CRED = os.getenv("FIREBASE_CRED", "")
-if not FIREBASE_CRED:
-    raise SystemExit("Set FIREBASE_CRED env var to service account path or JSON text")
+FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "")
+if not FIREBASE_CRED_PATH:
+    raise SystemExit("Set FIREBASE_CRED_PATH env var to service account path or JSON text")
 
-if os.path.exists(FIREBASE_CRED):
-    cred = credentials.Certificate(FIREBASE_CRED)
+if os.path.exists(FIREBASE_CRED_PATH):
+    cred = credentials.Certificate(FIREBASE_CRED_PATH)
 else:
-    cred = credentials.Certificate(json.loads(FIREBASE_CRED))
+    cred = credentials.Certificate(json.loads(FIREBASE_CRED_PATH))
 
 initialize_app(cred)
 db = firestore.client()
