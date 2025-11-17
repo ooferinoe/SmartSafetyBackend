@@ -22,8 +22,10 @@ cloudinary.config(
     secure=True
 )
 
-from config import FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
-cred = credentials.Certificate(FIREBASE_CRED_PATH)
+router = APIRouter()
+
+from config import FIREBASE_CRED, GMAIL_USER, GMAIL_PASS
+cred = credentials.Certificate(FIREBASE_CRED)
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()
@@ -104,7 +106,6 @@ class StatusUpdate(BaseModel):
     remarks: str = None
 
 logger = logging.getLogger("routes")
-router = APIRouter()
 
 # simple in-memory cache for last model response (thread-safe)
 _model_cache = {"resp": None, "ts": 0.0}
