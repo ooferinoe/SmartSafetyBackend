@@ -1,7 +1,7 @@
 import logging, time, threading, cv2, requests, numpy as np, os
 from typing import Optional, Tuple, Dict, Any
 from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
@@ -157,13 +157,13 @@ async def get_model_response():
 
 ModelResponse = Depends(get_model_response)
 
-# @router.get("/get_frame_detections")
-# def get_frame_detections(model_resp: dict = ModelResponse):
-#     """
-#     Returns the raw model response.
-#     The 'model_resp' is provided by the cached dependency.
-#     """
-#     return JSONResponse(model_resp)
+@router.get("/get_frame_detections")
+def get_frame_detections(model_resp: dict = ModelResponse):
+    """
+    Returns the raw model response.
+    The 'model_resp' is provided by the cached dependency.
+    """
+    return JSONResponse(model_resp)
 
 
 @router.post("/detect")
@@ -298,3 +298,59 @@ async def update_violation_status(violation_id: str, payload: StatusUpdate):
 def health_check():
     return JSONResponse({"status": "healthy"})
 
+def get_video_frames():
+    """
+    This is a "generator" function. It will open the video stream
+    and yield one frame at a time.
+    """
+    
+    # Use the STREAM_URL from your config
+    cap = cv2.VideoCapture(STREAM_URL) 
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open video stream at {STREAM_URL}")
+        return
+
+    print("Video stream opened successfully.")
+    while True:
+        try:
+            ret, frame = cap.read()  # Read one frame
+            if not ret:
+                print("Stream ended or failed to read frame. Reconnecting...")
+                # Attempt to reconnect
+                cap.release()
+                cap = cv2.VideoCapture(STREAM_URL)
+                if not cap.isOpened():
+                    print("Failed to reconnect.")
+                    break
+                continue
+
+            # Encode the frame as JPEG
+            (flag, encodedImage) = cv2.imencode(".jpg", frame)
+            if not flag:
+                continue
+
+            # Yield the frame in the multipart-replace format
+            # This is the "magic" that makes it a stream
+            yield (
+                b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n'
+            )
+        except Exception as e:
+            print(f"Error in video stream loop: {e}")
+            break
+            
+    cap.release()
+    print("Video stream closed.")
+
+
+@router.get("/video_feed")
+def video_feed():
+    """
+    This is the endpoint your frontend will connect to.
+    It returns the streaming response from the generator.
+    """
+    return StreamingResponse(
+        get_video_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
