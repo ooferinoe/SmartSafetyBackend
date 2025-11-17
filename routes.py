@@ -64,6 +64,7 @@ def final_upload_and_update(temp_video_path, violation_docs):
     finally:
         os.remove(temp_video_path)
         print("INFO (Thread): Upload task finished and temp file deleted.")
+        
 @router.post("/upload_video")
 async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
     """
