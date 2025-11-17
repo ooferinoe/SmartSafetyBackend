@@ -15,11 +15,8 @@ if not all([GMAIL_USER, GMAIL_PASS]):
     print("FATAL ERROR: Gmail credentials missing."); sys.exit(1)
 
 # --- Model and DB Setup ---
-YOLOV5_MODEL_PATH = r"C:\YOLOv5\yolov5\runs\train\exp\weights\best.pt"
-model = YOLO(YOLOV5_MODEL_PATH)
 cred = credentials.Certificate("serviceAccountKey.json")
 initialize_app(cred)
 db = firestore.client()
 violations_ref = db.collection("violations")
 STREAM_URL = "http://192.168.1.6:8080/video"
-UNRESOLVED_CLASSES = { 'Improper Hard Hat', 'Improper Safety Glasses', 'Improper Safety Gloves', 'Improper Safety Shoes', 'No Hard Hat', 'No Reflectorized Vest', 'No Safety Glasses', 'No Safety Gloves' }
