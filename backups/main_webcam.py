@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 import uvicorn, asyncio, cv2, os, numpy as np
 from fastapi.middleware.cors import CORSMiddleware
-from routes import router
+from backups.routes_old import router
 from services.model_client import predict_frame_via_service
 from contextlib import asynccontextmanager
 

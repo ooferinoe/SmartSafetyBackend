@@ -12,6 +12,11 @@ FIREBASE_CRED = os.getenv("FIREBASE_CRED", "serviceAccountKey.json")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
+
+
 API_KEY_MODEL = os.getenv("API_KEY_MODEL")
 TZ = os.getenv("TZ", "Asia/Manila")
 

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from shared import model, db, violations_ref, STREAM_URL, UNRESOLVED_CLASSES, cloud_name, GMAIL_USER, GMAIL_PASS
+from firebase_admin import credentials, firestore, initialize_app
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware,
