@@ -1,5 +1,6 @@
 from firebase_admin import credentials, firestore, initialize_app
-import cloudinary, cloudinary.uploader, os, sys, torch
+import cloudinary, cloudinary.uploader, os, sys
+from ultralytics import YOLO
 
 # --- Secure Configuration ---
 cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
@@ -15,7 +16,7 @@ if not all([GMAIL_USER, GMAIL_PASS]):
 
 # --- Model and DB Setup ---
 YOLOV5_MODEL_PATH = r"C:\YOLOv5\yolov5\runs\train\exp\weights\best.pt"
-model = torch.hub.load('ultralytics/yolov5', 'custom', path=YOLOV5_MODEL_PATH, source='local', force_reload=True)
+model = YOLO(YOLOV5_MODEL_PATH)
 cred = credentials.Certificate("serviceAccountKey.json")
 initialize_app(cred)
 db = firestore.client()
