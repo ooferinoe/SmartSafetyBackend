@@ -1,6 +1,5 @@
 from firebase_admin import credentials, firestore, initialize_app
 import cloudinary, cloudinary.uploader, os, sys
-from ultralytics import YOLO
 
 # --- Secure Configuration ---
 cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
