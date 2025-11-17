@@ -2,7 +2,7 @@ import logging, time, threading, cv2, requests, numpy as np, os
 from typing import Optional, Tuple, Dict, Any
 from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query, UploadFile, File
 from fastapi.responses import JSONResponse
-from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL
+from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
 from services.storage import add_violation, query_violations_by_timestamp
@@ -12,7 +12,6 @@ from fastapi import HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary, cloudinary.uploader
-from config import CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
 
 # Cloudinary config
 cloudinary.config(
@@ -24,8 +23,7 @@ cloudinary.config(
 
 router = APIRouter()
 
-from config import FIREBASE_CRED, GMAIL_USER, GMAIL_PASS
-cred = credentials.Certificate(FIREBASE_CRED)
+cred = credentials.Certificate(FIREBASE_CRED_PATH)
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()
