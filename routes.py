@@ -193,7 +193,7 @@ def detect_ipcam(background_tasks: BackgroundTasks):
             "violations_stored": 0,
             "unresolved": [],
             "detections": [],
-            "width": 1920
+            "width": 1920,
             "height": 1080
         })
     
