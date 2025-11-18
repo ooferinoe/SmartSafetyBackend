@@ -186,6 +186,17 @@ def detect_ipcam(background_tasks: BackgroundTasks):
     Processes the cached model response to find and log violations.
     Processor handles normalization, dedupe and enqueue alerts via background_tasks.
     """
+    
+    if latest_webcam_detection is None:
+        # Return an empty list instead of crashing
+        return JSONResponse({
+            "violations_stored": 0,
+            "unresolved": [],
+            "detections": [],
+            "width": 1920
+            "height": 1080
+        })
+    
     try:
         result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
         violations = result.get("violations", [])
