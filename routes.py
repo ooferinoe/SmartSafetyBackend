@@ -310,50 +310,113 @@ async def update_violation_status(violation_id: str, payload: StatusUpdate):
 def health_check():
     return JSONResponse({"status": "healthy"})
 
-def get_video_frames():
-    """
-    This is a "generator" function. It will open the video stream
-    and yield one frame at a time.
-    """
+# def get_video_frames():
+#     """
+#     This is a "generator" function. It will open the video stream
+#     and yield one frame at a time.
+#     """
     
-    # Use the STREAM_URL from your config
-    cap = cv2.VideoCapture(STREAM_URL) 
+#     # Use the STREAM_URL from your config
+#     cap = cv2.VideoCapture(STREAM_URL) 
     
-    if not cap.isOpened():
-        print(f"Error: Could not open video stream at {STREAM_URL}")
-        return
+#     if not cap.isOpened():
+#         print(f"Error: Could not open video stream at {STREAM_URL}")
+#         return
 
-    print("Video stream opened successfully.")
-    while True:
-        try:
-            ret, frame = cap.read()  # Read one frame
-            if not ret:
-                print("Stream ended or failed to read frame. Reconnecting...")
-                # Attempt to reconnect
-                cap.release()
-                cap = cv2.VideoCapture(STREAM_URL)
-                if not cap.isOpened():
-                    print("Failed to reconnect.")
-                    break
-                continue
+#     print("Video stream opened successfully.")
+#     while True:
+#         try:
+#             ret, frame = cap.read()  # Read one frame
+#             if not ret:
+#                 print("Stream ended or failed to read frame. Reconnecting...")
+#                 # Attempt to reconnect
+#                 cap.release()
+#                 cap = cv2.VideoCapture(STREAM_URL)
+#                 if not cap.isOpened():
+#                     print("Failed to reconnect.")
+#                     break
+#                 continue
 
-            # Encode the frame as JPEG
-            (flag, encodedImage) = cv2.imencode(".jpg", frame)
-            if not flag:
-                continue
+#             # Encode the frame as JPEG
+#             (flag, encodedImage) = cv2.imencode(".jpg", frame)
+#             if not flag:
+#                 continue
 
-            # Yield the frame in the multipart-replace format
-            # This is the "magic" that makes it a stream
-            yield (
-                b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n'
-            )
-        except Exception as e:
-            print(f"Error in video stream loop: {e}")
-            break
+#             # Yield the frame in the multipart-replace format
+#             # This is the "magic" that makes it a stream
+#             yield (
+#                 b'--frame\r\n'
+#                 b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n'
+#             )
+#         except Exception as e:
+#             print(f"Error in video stream loop: {e}")
+#             break
             
-    cap.release()
-    print("Video stream closed.")
+#     cap.release()
+#     print("Video stream closed.")
+
+def start_camera_stream():
+    """
+    Background thread that continuously reads frames from the camera
+    and updates the global 'output_frame'.
+    """
+    global output_frame, STREAM_URL
+    
+    # Use the sub-stream (102) and force TCP for stability
+    # Ensure STREAM_URL in Render is: rtsp://user:pass@url.../Streaming/Channels/102
+    # And set OPENCV_FFMPEG_CAPTURE_OPTIONS = rtsp_transport;tcp in Render env
+    
+    print(f"Starting background stream from: {STREAM_URL}")
+    cap = cv2.VideoCapture(STREAM_URL)
+    time.sleep(2.0) # Warm up
+
+    while True:
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                with lock:
+                    # Update the global frame safely
+                    output_frame = frame.copy()
+            else:
+                # If we lose connection, try to reconnect
+                print("Lost connection to camera. Reconnecting...")
+                cap.release()
+                time.sleep(2) # Wait before reconnecting
+                cap = cv2.VideoCapture(STREAM_URL)
+        else:
+            print("Camera not open. Retrying...")
+            time.sleep(2)
+            cap = cv2.VideoCapture(STREAM_URL)
+
+# --- Start the background thread immediately when app starts ---
+# (Put this near the bottom of your imports or before app startup)
+t = threading.Thread(target=start_camera_stream, daemon=True)
+t.start()
+
+def generate_frames():
+    """
+    Generator that just reads the latest global frame.
+    It does NOT connect to the camera itself.
+    """
+    global output_frame, lock
+    
+    while True:
+        with lock:
+            if output_frame is None:
+                continue
+            
+            # Encode the global frame
+            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+            
+        if not flag:
+            continue
+
+        # Yield the frame to the user
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
+        
+        # Control the framerate sent to the browser (optional, saves bandwidth)
+        time.sleep(0.03)
 
 
 @router.get("/video_feed")
@@ -363,6 +426,6 @@ def video_feed():
     It returns the streaming response from the generator.
     """
     return StreamingResponse(
-        get_video_frames(),
+        generate_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
