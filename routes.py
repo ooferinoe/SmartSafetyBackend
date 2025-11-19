@@ -23,6 +23,8 @@ cloudinary.config(
 
 router = APIRouter()
 latest_webcam_detection = None
+output_frame = None
+lock = threading.Lock()
 
 cred = credentials.Certificate(FIREBASE_CRED_PATH)
 if not firebase_admin._apps:
