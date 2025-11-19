@@ -370,6 +370,7 @@ def start_camera_stream():
     
     print(f"Starting background stream from: {STREAM_URL}")
     cap = cv2.VideoCapture(STREAM_URL)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     time.sleep(2.0) # Warm up
 
     while True:
