@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "https://ooferinoe-smart-safety-model.hf.space")
-STREAM_URL = os.getenv("STREAM_URL", "http://192.168.8.100:8000/video")
+STREAM_URL = os.getenv("STREAM_URL", "http://sbjfq-136-158-79-95.a.free.pinggy.link:41141")
 CAMERA_ID = os.getenv("CAMERA_ID", "CAM 001")
 
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "serviceAccountKey.json")
