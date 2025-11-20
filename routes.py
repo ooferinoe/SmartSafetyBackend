@@ -158,8 +158,9 @@ detectionLoop.start()
 # Endpoints
 @router.get("/detect_ipcam")
 def detect_ipcam(background_tasks: BackgroundTasks):
+    global latest_webcam_detection, last_api_call_time
     
-    global latest_webcam_detection
+    last_api_call_time = time.time()
     
     if latest_webcam_detection is None:
         return JSONResponse({
