@@ -1,17 +1,13 @@
-import logging, time, threading, cv2, requests, numpy as np, os
-from typing import Optional, Tuple, Dict, Any
-from fastapi import APIRouter, Request, BackgroundTasks, Depends, Response, Query, UploadFile, File
+import logging, time, threading, cv2, numpy as np, os, firebase_admin, cloudinary, cloudinary.uploader, tempfile, smtplib
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
-from services.storage import add_violation, query_violations_by_timestamp
-from services.emailer import send_alert
 from pydantic import BaseModel
-from fastapi import HTTPException
-import firebase_admin
 from firebase_admin import credentials, firestore
-import cloudinary, cloudinary.uploader
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Cloudinary config
 cloudinary.config(
@@ -22,18 +18,20 @@ cloudinary.config(
 )
 
 router = APIRouter()
+logger = logging.getLogger("routes")
+
+# Global varibales
 latest_webcam_detection = None
 output_frame = None
 lock = threading.Lock()
 
+# Firebase initialization
 cred = credentials.Certificate(FIREBASE_CRED_PATH)
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()
-import tempfile
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+# Email alert function
 def send_email_alert_from_backend(violation_data, footage_url):
     violation_id = violation_data.get("violationId")
     to_email = (violation_data.get("alertSentTo") or [])[0] if violation_data.get("alertSentTo") else None
@@ -48,6 +46,8 @@ def send_email_alert_from_backend(violation_data, footage_url):
         print(f"INFO: Email sent for violation {violation_id}")
         db.collection("violations").document(violation_id).update({"alertSent": True})
     except Exception as e: print(f"ERROR sending email for {violation_id}: {e}")
+
+#Cloudinary upload
 def final_upload_and_update(temp_video_path, violation_docs):
     try:
         print("INFO (Thread): Uploading AVI to Cloudinary...")
@@ -67,7 +67,136 @@ def final_upload_and_update(temp_video_path, violation_docs):
     finally:
         os.remove(temp_video_path)
         print("INFO (Thread): Upload task finished and temp file deleted.")
-         
+
+# Camera stream
+def start_camera_stream():
+    global output_frame, STREAM_URL
+    
+    # Use the sub-stream (102) and force TCP for stability
+    # Ensure STREAM_URL in Render is: rtsp://user:pass@url.../Streaming/Channels/102
+    # And set OPENCV_FFMPEG_CAPTURE_OPTIONS = rtsp_transport;tcp in Render env
+    
+    print(f"Starting background stream from: {STREAM_URL}")
+    cap = cv2.VideoCapture(STREAM_URL)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    time.sleep(2.0)
+
+    while True:
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                with lock:
+                    output_frame = frame.copy()
+            else:
+                print("Lost connection to camera. Reconnecting...")
+                cap.release()
+                time.sleep(2)
+                cap = cv2.VideoCapture(STREAM_URL)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        else:
+            print("Camera not open. Retrying...")
+            time.sleep(2)
+            cap = cv2.VideoCapture(STREAM_URL)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+#AI detection
+def start_detction_loop():
+    global output_frame, latest_webcam_detection, MODEL_SERVICE_URL
+    print(f"Starting detection loop pointing to: {MODEL_SERVICE_URL}")
+    
+    while True:
+        frame_to_process = None
+        with lock:
+            if output_frame is not None:
+                frame_to_process = output_frame.copy()
+                
+        if frame_to_process is not None:
+            try:
+                result = predict_frame_via_service(MODEL_SERVICE_URL, frame_to_process)
+                if result and not result.get("error"):
+                    latest_webcam_detection = result
+                    
+            except Exception as e:
+                logger.error(f"Detection loop error: {e}")
+        
+        time.sleep(0.5)
+        
+camStream = threading.Thread(target=start_camera_stream, daemon=True)
+camStream.start()
+
+detectionLoop = threading.Thread(target=start_detction_loop, daemon=True)
+detectionLoop.start()
+
+# Endpoints
+@router.get("/detect_ipcam")
+def detect_ipcam(background_tasks: BackgroundTasks):
+    
+    global latest_webcam_detection
+    
+    if latest_webcam_detection is None:
+        return JSONResponse({
+            "violations_stored": 0,
+            "unresolved": [],
+            "detections": [],
+            "width": 640,
+            "height": 360
+        })
+    
+    try:
+        result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
+        violations = result.get("violations", [])
+        
+        for v in violations:
+            logger.info(
+                "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
+                v.get("violationType") or v.get("type"),
+                v.get("confidence"),
+                v.get("violationId"),
+                v.get("footageId") or v.get("camera_id", CAMERA_ID),
+            )
+        return JSONResponse({
+            "violations_stored": result.get("violations_stored", 0),
+            "unresolved": [v.get("violationType") or v.get("type") for v in violations],
+            "detections": latest_webcam_detection.get("detections", []),
+            "width": latest_webcam_detection.get("width", 640),
+            "height": latest_webcam_detection.get("height", 360)
+        })
+        
+    except Exception as e:
+        logger.exception("detect_ipcam: processing failed")
+
+        return JSONResponse({
+            "violations_stored": 0,
+            "unresolved": [],
+            "detections": [],
+            "error": str(e)
+        })
+        
+def generate_frames():
+    global output_frame, lock
+    
+    while True:
+        with lock:
+            if output_frame is None:
+                time.sleep(0.1)
+                continue
+            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+            
+        if not flag:
+            continue
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
+        time.sleep(0.10)
+
+@router.get("/video_feed")
+def video_feed():
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
 @router.post("/upload_video")
 async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
     """
@@ -108,170 +237,6 @@ class StatusUpdate(BaseModel):
 
 logger = logging.getLogger("routes")
 
-# simple in-memory cache for last model response (thread-safe)
-_model_cache = {"resp": None, "ts": 0.0}
-_model_cache_lock = threading.Lock()
-_MODEL_TTL = 2.0  # seconds, adjust as needed
-
-
-def _get_frame_and_run_model() -> Tuple[Optional[Dict[str, Any]], Optional[JSONResponse]]:
-    """
-    Fetch frame and run model ONCE, but reuse cached model_resp for _MODEL_TTL seconds.
-    Returns (model_response, None) on success, or (None, error_response) on failure.
-    """
-    now = time.time()
-    with _model_cache_lock:
-        if _model_cache["resp"] is not None and (now - _model_cache["ts"]) <= _MODEL_TTL:
-            return _model_cache["resp"], None
-
-    # fetch frame + call model (only when cache expired)
-    try:
-        r = requests.get(STREAM_URL, timeout=5)
-        r.raise_for_status()
-        jpg = np.frombuffer(r.content, dtype=np.uint8)
-        frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
-        if frame is None:
-            raise Exception("failed to decode frame")
-    except Exception as e:
-        logger.exception("Helper: failed to fetch frame")
-        return None, JSONResponse({"error": f"Failed to fetch frame: {e}"}, status_code=500)
-
-    try:
-        model_resp = predict_frame_via_service(MODEL_SERVICE_URL, frame)
-    except Exception as e:
-        logger.exception("Helper: model call failed")
-        return None, JSONResponse({"error": f"Model call failed: {e}"}, status_code=500)
-
-    # store in cache
-    with _model_cache_lock:
-        _model_cache["resp"] = model_resp
-        _model_cache["ts"] = time.time()
-
-    return model_resp, None
-
-
-# FastAPI dependency wrapper that returns cached model response or raises error
-async def get_model_response():
-    model_resp, error = _get_frame_and_run_model()
-    if error:
-        # propagate the JSONResponse as exception (FastAPI will handle it)
-        raise error
-    return model_resp
-
-ModelResponse = Depends(get_model_response)
-
-@router.get("/get_frame_detections")
-def get_frame_detections(model_resp: dict = ModelResponse):
-    """
-    Returns the raw model response.
-    The 'model_resp' is provided by the cached dependency.
-    """
-    return JSONResponse(model_resp)
-
-
-@router.post("/detect")
-async def detect_ppe_violation(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    jpg = np.frombuffer(image_bytes, dtype=np.uint8)
-    frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
-    if frame is None:
-        return {"error": "Failed to decode image"}
-    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
-    global latest_webcam_detection
-    latest_webcam_detection = result
-    return result
-
-# , model_resp: dict = ModelResponse ------------v
-@router.get("/detect_ipcam")
-def detect_ipcam(background_tasks: BackgroundTasks):
-    """
-    Processes the cached model response to find and log violations.
-    Processor handles normalization, dedupe and enqueue alerts via background_tasks.
-    """
-    
-    if latest_webcam_detection is None:
-        # Return an empty list instead of crashing
-        return JSONResponse({
-            "violations_stored": 0,
-            "unresolved": [],
-            "detections": [],
-            "width": 1920,
-            "height": 1080
-        })
-    
-    try:
-        result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
-        violations = result.get("violations", [])
-        # log unresolved violations only
-        for v in violations:
-            logger.info(
-                "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
-                v.get("violationType") or v.get("type"),
-                v.get("confidence"),
-                v.get("violationId"),
-                v.get("footageId") or v.get("camera_id", CAMERA_ID),
-            )
-        return JSONResponse({
-            "violations_stored": result.get("violations_stored", 0),
-            "unresolved": [v.get("violationType") or v.get("type") for v in violations]
-        })
-    except JSONResponse as jr:
-        # propagated error from dependency
-        raise jr
-    except Exception as e:
-        logger.exception("detect_ipcam: processing failed")
-        return JSONResponse({"error": f"processing failed: {e}"}, status_code=500)
-
-
-@router.post("/send_alert_email")
-async def post_send_alert_email(request: Request):
-    data = await request.json()
-    to = data.get("to_email") or data.get("alertSentTo") or data.get("to")
-    violation_type = data.get("violationType") or data.get("violation_type") or data.get("type")
-    confidence = data.get("confidence")
-    timestamp = data.get("timestamp") or data.get("date_time")
-    try:
-        send_alert(to, violation_type, confidence, timestamp)
-        return JSONResponse({"success": True})
-    except Exception as e:
-        logger.exception("send_alert_email failed")
-        return JSONResponse({"error": f"send_alert failed: {e}"}, status_code=500)
-    
-@router.get("/detect_ppe")
-def detect_ppe(STREAM_URL: str = Query(...)):
-    """
-    Captures a frame from the IP camera (supports both HTTP image and RTSP stream), sends it to the model API, and returns detection results.
-    """
-    frame = None
-    if STREAM_URL.lower().startswith("http"):
-        try:
-            r = requests.get(STREAM_URL, timeout=5)
-            r.raise_for_status()
-            jpg = np.frombuffer(r.content, dtype=np.uint8)
-            frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
-            if frame is None:
-                return {"error": "Failed to decode image from HTTP URL.", "details": f"Content length: {len(r.content)}"}
-        except requests.exceptions.ConnectionError as ce:
-            return {"error": "Connection error to camera URL.", "details": str(ce)}
-        except requests.exceptions.Timeout as te:
-            return {"error": "Timeout when connecting to camera URL.", "details": str(te)}
-        except requests.exceptions.RequestException as re:
-            return {"error": "Request error when connecting to camera URL.", "details": str(re)}
-        except Exception as e:
-            return {"error": f"Failed to fetch image from HTTP URL: {e}", "details": str(e)}
-    elif STREAM_URL.lower().startswith("rtsp"):
-        cap = cv2.VideoCapture(STREAM_URL)
-        ret, frame = cap.read()
-        cap.release()
-        if not ret or frame is None:
-            return {"error": "Failed to capture frame from RTSP stream."}
-    else:
-        return {"error": "Unsupported STREAM_URL protocol. Use http or rtsp."}
-
-    result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
-    return result
-
-
 # --- Violation status update route ---
 @router.patch("/violations/{violation_id}/status")
 async def update_violation_status(violation_id: str, payload: StatusUpdate):
@@ -311,124 +276,3 @@ async def update_violation_status(violation_id: str, payload: StatusUpdate):
 @router.get("/health")
 def health_check():
     return JSONResponse({"status": "healthy"})
-
-# def get_video_frames():
-#     """
-#     This is a "generator" function. It will open the video stream
-#     and yield one frame at a time.
-#     """
-    
-#     # Use the STREAM_URL from your config
-#     cap = cv2.VideoCapture(STREAM_URL) 
-    
-#     if not cap.isOpened():
-#         print(f"Error: Could not open video stream at {STREAM_URL}")
-#         return
-
-#     print("Video stream opened successfully.")
-#     while True:
-#         try:
-#             ret, frame = cap.read()  # Read one frame
-#             if not ret:
-#                 print("Stream ended or failed to read frame. Reconnecting...")
-#                 # Attempt to reconnect
-#                 cap.release()
-#                 cap = cv2.VideoCapture(STREAM_URL)
-#                 if not cap.isOpened():
-#                     print("Failed to reconnect.")
-#                     break
-#                 continue
-
-#             # Encode the frame as JPEG
-#             (flag, encodedImage) = cv2.imencode(".jpg", frame)
-#             if not flag:
-#                 continue
-
-#             # Yield the frame in the multipart-replace format
-#             # This is the "magic" that makes it a stream
-#             yield (
-#                 b'--frame\r\n'
-#                 b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n'
-#             )
-#         except Exception as e:
-#             print(f"Error in video stream loop: {e}")
-#             break
-            
-#     cap.release()
-#     print("Video stream closed.")
-
-def start_camera_stream():
-    """
-    Background thread that continuously reads frames from the camera
-    and updates the global 'output_frame'.
-    """
-    global output_frame, STREAM_URL
-    
-    # Use the sub-stream (102) and force TCP for stability
-    # Ensure STREAM_URL in Render is: rtsp://user:pass@url.../Streaming/Channels/102
-    # And set OPENCV_FFMPEG_CAPTURE_OPTIONS = rtsp_transport;tcp in Render env
-    
-    print(f"Starting background stream from: {STREAM_URL}")
-    cap = cv2.VideoCapture(STREAM_URL)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    time.sleep(2.0) # Warm up
-
-    while True:
-        if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                with lock:
-                    # Update the global frame safely
-                    output_frame = frame.copy()
-            else:
-                # If we lose connection, try to reconnect
-                print("Lost connection to camera. Reconnecting...")
-                cap.release()
-                time.sleep(2) # Wait before reconnecting
-                cap = cv2.VideoCapture(STREAM_URL)
-        else:
-            print("Camera not open. Retrying...")
-            time.sleep(2)
-            cap = cv2.VideoCapture(STREAM_URL)
-
-# --- Start the background thread immediately when app starts ---
-# (Put this near the bottom of your imports or before app startup)
-t = threading.Thread(target=start_camera_stream, daemon=True)
-t.start()
-
-def generate_frames():
-    """
-    Generator that just reads the latest global frame.
-    It does NOT connect to the camera itself.
-    """
-    global output_frame, lock
-    
-    while True:
-        with lock:
-            if output_frame is None:
-                continue
-            
-            # Encode the global frame
-            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
-            
-        if not flag:
-            continue
-
-        # Yield the frame to the user
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
-        
-        # Control the framerate sent to the browser (optional, saves bandwidth)
-        time.sleep(0.03)
-
-
-@router.get("/video_feed")
-def video_feed():
-    """
-    This is the endpoint your frontend will connect to.
-    It returns the streaming response from the generator.
-    """
-    return StreamingResponse(
-        generate_frames(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
