@@ -23,6 +23,8 @@ logger = logging.getLogger("routes")
 # Global varibales
 latest_webcam_detection = None
 output_frame = None
+last_frame_time =0
+last_api_call_time = 0
 lock = threading.Lock()
 
 # Firebase initialization
@@ -87,6 +89,7 @@ def start_camera_stream():
             if ret:
                 with lock:
                     output_frame = frame.copy()
+                    last_frame_time = time.time()
             else:
                 print("Lost connection to camera. Reconnecting...")
                 cap.release()
@@ -104,11 +107,29 @@ def start_detction_loop():
     global output_frame, latest_webcam_detection, MODEL_SERVICE_URL
     print(f"Starting detection loop pointing to: {MODEL_SERVICE_URL}")
     
+    last_processed_time = 0
+    
     while True:
+        current_time = time.time()
+        
+        if (current_time - last_api_call_time) > 10.0:
+            time.sleep(1.0)
+            continue
+        
+        if (current_time - last_frame_time) > 5.0:
+            print("Camera stream inactive. Waiting for frames...")
+            time.sleep(1.0)
+            continue
+        
+        if last_frame_time <= last_processed_time:
+            time.sleep(0.05)
+            continue
+        
         frame_to_process = None
         with lock:
             if output_frame is not None:
                 frame_to_process = output_frame.copy()
+                last_processed_time = last_frame_time
                 
         if frame_to_process is not None:
             try:
