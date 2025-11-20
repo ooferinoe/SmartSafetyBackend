@@ -113,6 +113,13 @@ def start_detction_loop():
         if frame_to_process is not None:
             try:
                 result = predict_frame_via_service(MODEL_SERVICE_URL, frame_to_process)
+                if result:
+                    det_cout = len(result.get("detections", []))
+                    print(f"Detection loop: got {det_cout} detections")
+                    
+                else:
+                    print("Detection loop: no result from model service")
+                    
                 if result and not result.get("error"):
                     latest_webcam_detection = result
                     
