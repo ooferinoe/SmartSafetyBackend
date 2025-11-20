@@ -145,8 +145,8 @@ def detect_ipcam(background_tasks: BackgroundTasks):
             "violations_stored": 0,
             "unresolved": [],
             "detections": [],
-            "width": 640,
-            "height": 360
+            "width": 1920,
+            "height": 1080
         })
     
     try:
@@ -165,8 +165,8 @@ def detect_ipcam(background_tasks: BackgroundTasks):
             "violations_stored": result.get("violations_stored", 0),
             "unresolved": [v.get("violationType") or v.get("type") for v in violations],
             "detections": latest_webcam_detection.get("detections", []),
-            "width": latest_webcam_detection.get("width", 640),
-            "height": latest_webcam_detection.get("height", 360)
+            "width": latest_webcam_detection.get("width", 1920),
+            "height": latest_webcam_detection.get("height", 1080)
         })
         
     except Exception as e:
