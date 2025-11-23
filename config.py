@@ -9,6 +9,10 @@ CAMERA_ID = os.getenv("CAMERA_ID", "CAM 001")
 
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "serviceAccountKey.json")
 
+BREVO_USER = os.getenv("BREVO_USER")
+BREVO_PASS= os.getenv("BREVO_PASS")
+BREVO_SENDER= os.getenv("BREVO_SENDER")
+
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 

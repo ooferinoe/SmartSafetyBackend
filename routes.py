@@ -1,7 +1,7 @@
 import logging, time, threading, cv2, numpy as np, os, firebase_admin, cloudinary, cloudinary.uploader, tempfile, smtplib
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, GMAIL_USER, GMAIL_PASS
+from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, BREVO_USER, BREVO_PASS, BREVO_SENDER
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
 from pydantic import BaseModel
@@ -39,12 +39,26 @@ def send_email_alert_from_backend(violation_data, footage_url):
     to_email = (violation_data.get("alertSentTo") or [])[0] if violation_data.get("alertSentTo") else None
     if not to_email: return
     subject = f"Violation Alert: {violation_data.get('violationType')}"
-    timestamp_dt = datetime.fromisoformat(violation_data.get('timestamp'))
-    formatted_datetime = timestamp_dt.strftime("%m/%d/%Y, %I:%M:%S %p")
-    body = f"Hello Safety Officer,\n\nA new PPE violation has been detected.\n\nViolation: {violation_data.get('violationType')}\nConfidence: {violation_data.get('confidence')}%\nDate & Time: {formatted_datetime}\n- View Footage: {footage_url}\nThis violation has been logged into the SmartSafety system.\n\n\nPlease take appropriate action.\n\nStay safe,\nSmartSafety Monitoring System"
-    msg = MIMEMultipart(); msg['From'] = GMAIL_USER; msg['To'] = to_email; msg['Subject'] = subject; msg.attach(MIMEText(body, 'plain'))
+    # Format the timestamp string for the email body.
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp: smtp.login(GMAIL_USER, GMAIL_PASS); smtp.send_message(msg)
+        timestamp_dt = datetime.datetime.fromisoformat(violation_data.get('timestamp'))
+        formatted_datetime = timestamp_dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+    except Exception:
+        formatted_datetime = violation_data.get('timestamp') or ''
+    body = f"Hello Safety Officer,\n\nA new PPE violation has been detected.\n\nViolation: {violation_data.get('violationType')}\nConfidence: {violation_data.get('confidence')}%\nDate & Time: {formatted_datetime}\n- View Footage: {footage_url}\nThis violation has been logged into the SmartSafety system.\n\n\nPlease take appropriate action.\n\nStay safe,\nSmartSafety Monitoring System"
+    msg = MIMEMultipart(); 
+    # For display name of email since Python code overrides the name set in Brevo.
+    sender_name = "SmartSafety Alerts System"
+    sender_email = BREVO_SENDER
+    msg['From'] = f"{sender_name} <{sender_email}>"
+    msg['To'] = to_email; 
+    msg['Subject'] = subject; 
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP("smtp-relay.brevo.com", 587) as smtp: 
+            smtp.starttls() 
+            smtp.login(BREVO_USER, BREVO_PASS); 
+            smtp.send_message(msg)
         print(f"INFO: Email sent for violation {violation_id}")
         db.collection("violations").document(violation_id).update({"alertSent": True})
     except Exception as e: print(f"ERROR sending email for {violation_id}: {e}")
