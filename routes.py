@@ -94,7 +94,7 @@ def final_upload_and_update(temp_video_path, violation_docs):
                     snapshot = doc_ref.get()
                     
                     if snapshot.exists and not snapshot.to.dict().get("alertSent"):
-                        send_email_alert_from_backend(snapshot.to_dict(), footage_url)
+                        send_email_alert_from_backend(snapshot.to.dict(), footage_url)
             else:
                 print("INFO (Thread): Cooldown trigger only. No footage URL generated.")
                 

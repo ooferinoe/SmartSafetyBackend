@@ -1,5 +1,6 @@
 import datetime
 import logging
+import time
 from zoneinfo import ZoneInfo
 from config import CAMERA_ID, TZ
 from services.storage import add_violation
@@ -7,9 +8,7 @@ from services.emailer import send_alert
 
 logger = logging.getLogger("services.processor")
 
-
-
-
+_local_violation_cache = {}
 
 COMPLIANCE_CLASSES = {
     'Proper Hard Hat', 
@@ -31,7 +30,6 @@ NONCOMPLIANCE_CLASSES = {
     'No Safety Glasses',
     'No Safety Gloves'
 }
-
 
 def compute_iou(boxA, boxB):
     xA = max(boxA[0], boxB[0]); yA = max(boxA[1], boxB[1])
@@ -108,13 +106,28 @@ def process_frame_from_model_response(model_resp: dict, background_tasks=None, d
     PROCESS business logic only. Does NOT call the model.
     model_resp: raw response from predict_frame_via_service
     """
+    global _local_violation_cache
+    
     detections = normalize_detections(model_resp)
     filtered = filter_overlaps(detections)
-    now_iso = datetime.datetime.now(ZoneInfo(TZ)).isoformat() if TZ else datetime.datetime.utcnow().isoformat()
+    now_dt = datetime.datetime.now(ZoneInfo(TZ)) if TZ else datetime.datetime.utcnow()
+    now_iso = now_dt.isoformat()
+    
     violations = []
     compliance = []
+    
+    current_time = time.time()
+    
     for det in filtered:
         if det["name"] in NONCOMPLIANCE_CLASSES:
+            cache_key = f"{CAMERA_ID}|{det['name']}"
+            last_seen_time = _local_violation_cache.get(cache_key, 0)
+            
+            if current_time - last_seen_time < dedupe_window_seconds:
+                logger.debug(f"Skipping DB check for {det['name']} due to local cache.")
+                continue
+            _local_violation_cache[cache_key] = current_time
+            
             confidence_pct = int(round(det["confidence"] * 100)) if det["confidence"] <= 1 else int(round(det["confidence"]))
             doc = {
                 "type": det["name"],
@@ -126,13 +139,16 @@ def process_frame_from_model_response(model_resp: dict, background_tasks=None, d
                 "violationType": det["name"],
                 "footageId": CAMERA_ID
             }
+            
             doc_id = add_violation(doc, dedupe_window_seconds=dedupe_window_seconds)
             if doc_id:
                 violations.append({**doc, "violationId": doc_id})
                 if background_tasks is not None:
                     background_tasks.add_task(send_alert, ["smartsafety.alerts@gmail.com"], det["name"], confidence_pct, now_iso)
+                    
         elif det["name"] in COMPLIANCE_CLASSES:
             compliance.append(det)
+            
     logger.debug("process_frame_from_model_response: compliance=%d, noncompliance=%d", len(compliance), len(violations))
     return {
         "violations_stored": len(violations),
