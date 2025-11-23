@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
 
-
 # Cloudinary config
 cloudinary.config(
     cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -51,13 +50,18 @@ def send_email_alert_from_backend(violation_data, footage_url):
     subject = f"Violation Alert: {violation_data.get('violationType')}"
     # Format the timestamp string for the email body.
     try:
-        timestamp_dt = datetime.datetime.fromisoformat(violation_data.get('timestamp'))
-        formatted_datetime = timestamp_dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+        ts = violation_data.get('timestamp')
+        if ts:
+            timestamp_dt = datetime.datetime.fromisoformat(violation_data.get('timestamp'))
+            formatted_datetime = timestamp_dt.strftime("%m/%d/%Y, %I:%M:%S %p")
+        else:
+            formatted_datetime = "Unknown Time"
+            
     except Exception:
         formatted_datetime = violation_data.get('timestamp') or ''
+        
     body = f"Hello Safety Officer,\n\nA new PPE violation has been detected.\n\nViolation: {violation_data.get('violationType')}\nConfidence: {violation_data.get('confidence')}%\nDate & Time: {formatted_datetime}\n- View Footage: {footage_url}\nThis violation has been logged into the SmartSafety system.\n\n\nPlease take appropriate action.\n\nStay safe,\nSmartSafety Monitoring System"
     msg = MIMEMultipart(); 
-    # For display name of email since Python code overrides the name set in Brevo.
     sender_name = "SmartSafety Alerts System"
     sender_email = BREVO_SENDER
     msg['From'] = f"{sender_name} <{sender_email}>"
@@ -99,11 +103,9 @@ def final_upload_and_update(temp_video_path, violation_docs):
         
     finally:
         if temp_video_path and isinstance(temp_video_path, str) and os.path.exists(temp_video_path):
-            
             try:
                 os.remove(temp_video_path)
                 print("INFO (Thread): Temporary video file removed.") 
-            
             except Exception as cleanup_error:
                 print(f"ERROR removing temp video file: {cleanup_error}")  
               
@@ -150,7 +152,7 @@ def start_camera_stream():
             time.sleep(2)
 
 #AI detection
-def start_detction_loop():
+def start_detection_loop():
     global output_frame, latest_webcam_detection, MODEL_SERVICE_URL
     print(f"Starting detection loop pointing to: {MODEL_SERVICE_URL}")
     
@@ -163,8 +165,8 @@ def start_detction_loop():
             time.sleep(1.0)
             continue
         
-        if (current_time - last_frame_time) > 5.0:
-            print("Camera stream inactive. Waiting for frames...")
+        if last_frame_time > 0 and (current_time - last_frame_time) > 5.0:
+            # print("Camera stream inactive. Waiting for frames...")
             time.sleep(1.0)
             continue
         
@@ -181,31 +183,35 @@ def start_detction_loop():
         if frame_to_process is not None:
             try:
                 result = predict_frame_via_service(MODEL_SERVICE_URL, frame_to_process)
-                if result:
-                    det_cout = len(result.get("detections", []))
-                    print(f"Detection loop: got {det_cout} detections")
-                    
-                else:
-                    print("Detection loop: no result from model service")
-                    
                 if result and not result.get("error"):
+                    detections = result.get("detections", [])
+                    for det in detections:
+                        if "label" in det and "name" not in det:
+                            det["name"] = det["label"]
+                    
+                    if len(detections) > 0:
+                        labels = [d.get("name") for d in detections]
+                        print(f"DEBUG: Model saw: {labels}")
+                        
                     latest_webcam_detection = result
                     
             except Exception as e:
                 logger.error(f"Detection loop error: {e}")
         
         time.sleep(0.5)
-        
+
+# Start background threads        
 camStream = threading.Thread(target=start_camera_stream, daemon=True)
 camStream.start()
 
-detectionLoop = threading.Thread(target=start_detction_loop, daemon=True)
+detectionLoop = threading.Thread(target=start_detection_loop, daemon=True)
 detectionLoop.start()
 
 # Endpoints
 @router.get("/detect_ipcam")
 def detect_ipcam(background_tasks: BackgroundTasks):
     global latest_webcam_detection, last_api_call_time, is_on_cooldown, detection_lock
+    
     last_api_call_time = time.time()
     current_detection = latest_webcam_detection
     
@@ -233,7 +239,7 @@ def detect_ipcam(background_tasks: BackgroundTasks):
         return JSONResponse(response_payload)
     
     try:
-        result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
+        result = process_frame_from_model_response(current_detection, background_tasks=background_tasks)
         violations = result.get("violations", [])
         
         if not violations:
@@ -241,7 +247,7 @@ def detect_ipcam(background_tasks: BackgroundTasks):
             return JSONResponse(response_payload)
         
         for v in violations:
-            logger.info("Unresolved violation: type=%s", v.get("violationId")
+            logger.info(f"Unresolved violation: {v.get('violationId')} ({v.get('violationType')})"
                 # "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
                 # v.get("violationType") or v.get("type"),
                 # v.get("confidence"),
@@ -254,12 +260,10 @@ def detect_ipcam(background_tasks: BackgroundTasks):
         
         def upload_and_release(temp_video_path, violation_ids):
             global is_on_cooldown
-            
             try:
                 final_upload_and_update(temp_video_path, violation_ids)
                 
             finally:
-                # Enforce cooldown period and then release the detection lock
                 try:
                     print(f"INFO: Starting {COOLDOWN_SECONDS}-second cooldown.")
                     time.sleep(COOLDOWN_SECONDS)
@@ -333,8 +337,8 @@ async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
         return JSONResponse({"error": "No frames available from webcam."}, status_code=400)
 
     new_width, new_height = 1920, 1080
-    fps = 20.0
-    total_frames_to_record = int(fps * 20.0)
+    fps = 10.0
+    total_frames_to_record = int(fps * 10.0)
     
     temp_video = tempfile.NamedTemporaryFile(suffix=".avi", delete=False)
     temp_video_path = temp_video.name
@@ -365,9 +369,7 @@ class StatusUpdate(BaseModel):
     status: str
     remarks: str = None
 
-logger = logging.getLogger("routes")
-
-# --- Violation status update route ---
+# Violation status update route
 @router.patch("/violations/{violation_id}/status")
 async def update_violation_status(violation_id: str, payload: StatusUpdate):
     """
