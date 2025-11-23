@@ -1,13 +1,20 @@
-import logging, time, threading, cv2, numpy as np, os, firebase_admin, cloudinary, cloudinary.uploader, tempfile, smtplib
+import logging, time, threading, cv2, numpy as np, os
+import firebase_admin
+import cloudinary, cloudinary.uploader
+import tempfile, smtplib
+from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, FIREBASE_CRED_PATH
+from config import CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+from config import BREVO_USER, BREVO_PASS, BREVO_SENDER
+from datetime import datetime, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_CRED_PATH, BREVO_USER, BREVO_PASS, BREVO_SENDER
+from firebase_admin import credentials, firestore
+from pydantic import BaseModel
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
-from pydantic import BaseModel
-from firebase_admin import credentials, firestore
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
 
 # Cloudinary config
 cloudinary.config(
@@ -81,8 +88,10 @@ def final_upload_and_update(temp_video_path, violation_docs):
                 snapshot = doc_ref.get()
                 if snapshot.exists and not snapshot.to_dict().get("alertSent"):
                     send_email_alert_from_backend(snapshot.to_dict(), footage_url)
+                    
     except Exception as e:
         print(f"FATAL ERROR in upload thread: {e}")
+        
     finally:
         os.remove(temp_video_path)
         print("INFO (Thread): Upload task finished and temp file deleted.")
@@ -229,18 +238,23 @@ def detect_ipcam(background_tasks: BackgroundTasks):
                 v.get("violationId"),
                 v.get("footageId") or v.get("camera_id", CAMERA_ID),
             )
-        # Set cooldown flag while we hold the lock
+        
         is_on_cooldown = True
-        # Start background upload and cooldown release
+        
         def upload_and_release(temp_video_path, violation_ids):
-            final_upload_and_update(temp_video_path, violation_ids)
-            # Enforce cooldown period and then release the detection lock
+            global is_on_cooldown
+            
             try:
-                print(f"INFO: Starting {COOLDOWN_SECONDS}-second cooldown.")
-                time.sleep(COOLDOWN_SECONDS)
-            except Exception as e:
-                print(f"WARN: cooldown sleep interrupted: {e}")
+                final_upload_and_update(temp_video_path, violation_ids)
+                
             finally:
+                # Enforce cooldown period and then release the detection lock
+                try:
+                    print(f"INFO: Starting {COOLDOWN_SECONDS}-second cooldown.")
+                    time.sleep(COOLDOWN_SECONDS)
+                except Exception as e:
+                    print(f"WARN: cooldown sleep interrupted: {e}")
+
                 is_on_cooldown = False
                 try:
                     if detection_lock.locked():
@@ -248,16 +262,16 @@ def detect_ipcam(background_tasks: BackgroundTasks):
                 except RuntimeError:
                     pass
                 print("INFO: Cooldown finished. System is ready.")
-        # If you have a video upload, call background_tasks.add_task(upload_and_release, ...)
-        # Otherwise, release lock immediately after response
-        background_tasks.add_task(upload_and_release, None, [])  # You may need to pass actual args
+            
+        background_tasks.add_task(upload_and_release, None, []) 
         return JSONResponse({
             "violations_stored": result.get("violations_stored", 0),
             "unresolved": [v.get("violationType") or v.get("type") for v in violations],
             "detections": latest_webcam_detection.get("detections", []),
             "width": latest_webcam_detection.get("width", 1920),
             "height": latest_webcam_detection.get("height", 1080)
-        })
+       })
+        
     except Exception as e:
         logger.exception("detect_ipcam: processing failed")
         is_on_cooldown = False
@@ -304,33 +318,40 @@ async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
     Records a short video from the webcam, uploads to Cloudinary, and updates violation docs with footage URL.
     Accepts a list of violation document IDs to update.
     """
+    global output_frame, lock
     
-    cap = cv2.VideoCapture(STREAM_URL)
-    if not cap.isOpened():
-        return JSONResponse({"error": "Failed to open webcam stream."}, status_code=500)
+    if output_frame is None:
+        return JSONResponse({"error": "No frames available from webcam."}, status_code=400)
+
     new_width, new_height = 1920, 1080
-    fps, total_frames_to_record = 20.0, int(20 * 20.0)
+    fps = 20.0
+    total_frames_to_record = int(fps * 20.0)
+    
     temp_video = tempfile.NamedTemporaryFile(suffix=".avi", delete=False)
     temp_video_path = temp_video.name
     temp_video.close()
+    
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(temp_video_path, fourcc, fps, (new_width, new_height))
+    
     if not out.isOpened():
         cap.release()
         return JSONResponse({"error": "Failed to initialize video writer."}, status_code=500)
+    
     frames_recorded = 0
     while frames_recorded < total_frames_to_record:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        resized_frame = cv2.resize(frame, (new_width, new_height))
-        out.write(resized_frame)
-        frames_recorded += 1
+        with lock:
+            if output_frame is None:
+                resized_frame = cv2.resize(frame, (new_width, new_height))
+                out.write(resized_frame)
+                frames_recorded += 1
+                
+        time.sleep(1.0 / fps)
+        
     out.release()
-    cap.release()
+
     background_tasks.add_task(final_upload_and_update, temp_video_path, violation_ids)
     return JSONResponse({"message": "Video recorded and upload started."})
-from datetime import datetime, timezone
 
 class StatusUpdate(BaseModel):
     status: str
