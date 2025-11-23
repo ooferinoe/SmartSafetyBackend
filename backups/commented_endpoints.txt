@@ -161,3 +161,122 @@ final_upload_and_update
         print("INFO (Thread): Upload task finished and temp file deleted.")
 
 
+
+
+
+
+
+
+
+@router.get("/detect_ipcam")
+def detect_ipcam(background_tasks: BackgroundTasks):
+    global latest_webcam_detection, last_api_call_time, is_on_cooldown, detection_lock
+    last_api_call_time = time.time()
+
+    # Try to acquire the lock non-blocking
+    acquired = detection_lock.acquire(blocking=False)
+    if not acquired or is_on_cooldown:
+        if acquired:
+            try:
+                detection_lock.release()
+            except RuntimeError:
+                pass
+        return JSONResponse({
+            "violations_stored": 0,
+            "unresolved": [],
+            "detections": [],
+            "width": 1920,
+            "height": 1080,
+            "message": "System is on cooldown or busy."
+        }, status_code=429)
+
+    try:
+        if latest_webcam_detection is None:
+            try:
+                detection_lock.release()
+            except RuntimeError:
+                pass
+            return JSONResponse({
+                "violations_stored": 0,
+                "unresolved": [],
+                "detections": [],
+                "width": 1920,
+                "height": 1080
+            })
+
+        result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
+        violations = result.get("violations", [])
+        for v in violations:
+            logger.info(
+                "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
+                v.get("violationType") or v.get("type"),
+                v.get("confidence"),
+                v.get("violationId"),
+                v.get("footageId") or v.get("camera_id", CAMERA_ID),
+            )
+        violation_ids = [v.get("violationId") for v in violations if v.get("violationId")]
+        
+        is_on_cooldown = True
+        
+        def upload_and_release(temp_video_path, violation_ids):
+            global is_on_cooldown
+            
+            try:
+                final_upload_and_update(temp_video_path, violation_ids)
+                
+            finally:
+                # Enforce cooldown period and then release the detection lock
+                try:
+                    print(f"INFO: Starting {COOLDOWN_SECONDS}-second cooldown.")
+                    time.sleep(COOLDOWN_SECONDS)
+                except Exception as e:
+                    print(f"WARN: cooldown sleep interrupted: {e}")
+
+                is_on_cooldown = False
+                try:
+                    if detection_lock.locked():
+                        detection_lock.release()
+                except RuntimeError:
+                    pass
+                print("INFO: Cooldown finished. System is ready.")
+            
+        background_tasks.add_task(upload_and_release, None, violation_ids) 
+        return JSONResponse({
+            "violations_stored": result.get("violations_stored", 0),
+            "unresolved": [v.get("violationType") or v.get("type") for v in violations],
+            "detections": latest_webcam_detection.get("detections", []),
+            "width": latest_webcam_detection.get("width", 1920),
+            "height": latest_webcam_detection.get("height", 1080)
+       })
+        
+    except Exception as e:
+        logger.exception("detect_ipcam: processing failed")
+        is_on_cooldown = False
+        try:
+            if detection_lock.locked():
+                detection_lock.release()
+        except RuntimeError:
+            pass
+        return JSONResponse({
+            "violations_stored": 0,
+            "unresolved": [],
+            "detections": [],
+            "error": str(e)
+        })
+        
+def generate_frames():
+    global output_frame, lock
+    
+    while True:
+        with lock:
+            if output_frame is None:
+                time.sleep(0.1)
+                continue
+            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+            
+        if not flag:
+            continue
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
+        time.sleep(0.10)

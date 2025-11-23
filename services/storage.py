@@ -3,6 +3,7 @@ from config import FIREBASE_CRED_PATH
 import os
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
+from google.cloud.firestore import FieldFilter
 
 # Check if the variable was set at all
 if not FIREBASE_CRED_PATH:
@@ -91,7 +92,11 @@ def find_recent_similar(camera_id: str, violation_type: str, within_seconds: int
     Requires stored documents to have _ts (UTC datetime) field (normalized on write).
     """
     cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(seconds=within_seconds)
-    q = violations_ref.where("camera_id", "==", camera_id).where("type", "==", violation_type).where("_ts", ">=", cutoff).limit(1)
+    q = violations_ref.where(filter=FieldFilter("camera_id", "==", camera_id))\
+        .where(filter=FieldFilter("type", "==", violation_type))\
+        .where(filter=FieldFilter("_ts", ">=", cutoff))\
+        .limit(1)
+        
     docs = q.get()
     for d in docs:
         return d.id

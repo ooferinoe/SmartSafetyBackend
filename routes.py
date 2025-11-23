@@ -207,48 +207,48 @@ detectionLoop.start()
 def detect_ipcam(background_tasks: BackgroundTasks):
     global latest_webcam_detection, last_api_call_time, is_on_cooldown, detection_lock
     last_api_call_time = time.time()
-
-    # Try to acquire the lock non-blocking
-    acquired = detection_lock.acquire(blocking=False)
-    if not acquired or is_on_cooldown:
-        if acquired:
-            try:
-                detection_lock.release()
-            except RuntimeError:
-                pass
+    current_detection = latest_webcam_detection
+    
+    if current_detection is None:
         return JSONResponse({
             "violations_stored": 0,
             "unresolved": [],
             "detections": [],
             "width": 1920,
-            "height": 1080,
-            "message": "System is on cooldown or busy."
-        }, status_code=429)
+            "height": 1080
+        })
+        
+    response_payload = {
+        "violations_stored": 0,
+        "unresolved": [],
+        "detections": current_detection.get("detections", []),
+        "width": current_detection.get("width", 1920),
+        "height": current_detection.get("height", 1080)
+    }
 
+    if is_on_cooldown:
+        return JSONResponse(response_payload)
+    
+    if not detection_lock.acquire(blocking=False):
+        return JSONResponse(response_payload)
+    
     try:
-        if latest_webcam_detection is None:
-            try:
-                detection_lock.release()
-            except RuntimeError:
-                pass
-            return JSONResponse({
-                "violations_stored": 0,
-                "unresolved": [],
-                "detections": [],
-                "width": 1920,
-                "height": 1080
-            })
-
         result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
         violations = result.get("violations", [])
+        
+        if not violations:
+            detection_lock.release()
+            return JSONResponse(response_payload)
+        
         for v in violations:
-            logger.info(
-                "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
-                v.get("violationType") or v.get("type"),
-                v.get("confidence"),
-                v.get("violationId"),
-                v.get("footageId") or v.get("camera_id", CAMERA_ID),
+            logger.info("Unresolved violation: type=%s", v.get("violationId")
+                # "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
+                # v.get("violationType") or v.get("type"),
+                # v.get("confidence"),
+                # v.get("violationId"),
+                # v.get("footageId") or v.get("camera_id", CAMERA_ID),
             )
+        violation_ids = [v.get("violationId") for v in violations if v.get("violationId")]
         
         is_on_cooldown = True
         
@@ -274,29 +274,27 @@ def detect_ipcam(background_tasks: BackgroundTasks):
                     pass
                 print("INFO: Cooldown finished. System is ready.")
             
-        background_tasks.add_task(upload_and_release, None, []) 
-        return JSONResponse({
-            "violations_stored": result.get("violations_stored", 0),
-            "unresolved": [v.get("violationType") or v.get("type") for v in violations],
-            "detections": latest_webcam_detection.get("detections", []),
-            "width": latest_webcam_detection.get("width", 1920),
-            "height": latest_webcam_detection.get("height", 1080)
-       })
+        background_tasks.add_task(upload_and_release, None, violation_ids) 
+        
+        response_payload["violations_stored"] = result.get("violations_stored", 0)
+        response_payload["unresolved"] = [v.get("violationType") or v.get("type") for v in violations]
+        return JSONResponse(response_payload)
+    #     return JSONResponse({
+    #         "violations_stored": result.get("violations_stored", 0),
+    #         "unresolved": [v.get("violationType") or v.get("type") for v in violations],
+    #         "detections": latest_webcam_detection.get("detections", []),
+    #         "width": latest_webcam_detection.get("width", 1920),
+    #         "height": latest_webcam_detection.get("height", 1080)
+    #    })
         
     except Exception as e:
         logger.exception("detect_ipcam: processing failed")
         is_on_cooldown = False
-        try:
-            if detection_lock.locked():
-                detection_lock.release()
-        except RuntimeError:
-            pass
-        return JSONResponse({
-            "violations_stored": 0,
-            "unresolved": [],
-            "detections": [],
-            "error": str(e)
-        })
+        if detection_lock.locked():
+            detection_lock.release()
+
+        response_payload["error"] = str(e)
+        return JSONResponse(response_payload)
         
 def generate_frames():
     global output_frame, lock
@@ -346,14 +344,13 @@ async def upload_video(background_tasks: BackgroundTasks, violation_ids: list):
     out = cv2.VideoWriter(temp_video_path, fourcc, fps, (new_width, new_height))
     
     if not out.isOpened():
-        cap.release()
         return JSONResponse({"error": "Failed to initialize video writer."}, status_code=500)
     
     frames_recorded = 0
     while frames_recorded < total_frames_to_record:
         with lock:
             if output_frame is None:
-                resized_frame = cv2.resize(frame, (new_width, new_height))
+                resized_frame = cv2.resize(output_frame, (new_width, new_height))
                 out.write(resized_frame)
                 frames_recorded += 1
                 
