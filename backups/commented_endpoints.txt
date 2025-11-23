@@ -136,3 +136,28 @@ from email.mime.multipart import MIMEMultipart
 
 #     result = predict_frame_via_service(MODEL_SERVICE_URL, frame)
 #     return result
+
+
+final_upload_and_update
+    try:
+        print("INFO (Thread): Uploading AVI to Cloudinary...")
+        upload_result = cloudinary.uploader.upload(temp_video_path, resource_type="video", folder="violations")
+        public_id = upload_result.get('public_id')
+        footage_url = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/video/upload/f_mp4/{public_id}.mp4"
+        if footage_url:
+            print(f"INFO (Thread): MP4 URL generated. Updating docs and sending email...")
+            for doc_id in violation_docs:
+                doc_ref = db.collection("violations").document(doc_id)
+                doc_ref.update({"footageUrl": footage_url})
+                snapshot = doc_ref.get()
+                if snapshot.exists and not snapshot.to_dict().get("alertSent"):
+                    send_email_alert_from_backend(snapshot.to_dict(), footage_url)
+                    
+    except Exception as e:
+        print(f"FATAL ERROR in upload thread: {e}")
+        
+    finally:
+        os.remove(temp_video_path)
+        print("INFO (Thread): Upload task finished and temp file deleted.")
+
+

@@ -76,26 +76,37 @@ def send_email_alert_from_backend(violation_data, footage_url):
 #Cloudinary upload
 def final_upload_and_update(temp_video_path, violation_docs):
     try:
-        print("INFO (Thread): Uploading AVI to Cloudinary...")
-        upload_result = cloudinary.uploader.upload(temp_video_path, resource_type="video", folder="violations")
-        public_id = upload_result.get('public_id')
-        footage_url = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/video/upload/f_mp4/{public_id}.mp4"
-        if footage_url:
-            print(f"INFO (Thread): MP4 URL generated. Updating docs and sending email...")
-            for doc_id in violation_docs:
-                doc_ref = db.collection("violations").document(doc_id)
-                doc_ref.update({"footageUrl": footage_url})
-                snapshot = doc_ref.get()
-                if snapshot.exists and not snapshot.to_dict().get("alertSent"):
-                    send_email_alert_from_backend(snapshot.to_dict(), footage_url)
+        if temp_video_path:
+            print("INFO (Thread): Uploading video to Cloudinary...")
+            upload_result = cloudinary.uploader(temp_video_path, resource_type="video", folder="violations")
+            public_id = upload_result.get("public_id")
+            footage_url = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/video/upload/f_mp4/{public_id}.mp4"
+            
+            if footage_url:
+                print(f"INFO (Thread): {footage_url} generated. Updating violation docs...")
+                for doc_id in violation_docs:
+                    doc_ref = db.collection("violations").document(doc_id)
+                    doc_ref.update({"footageUrl": footage_url})
+                    snapshot = doc_ref.get()
                     
+                    if snapshot.exists and not snapshot.to.dict().get("alertSent"):
+                        send_email_alert_from_backend(snapshot.to_dict(), footage_url)
+            else:
+                print("INFO (Thread): Cooldown trigger only. No footage URL generated.")
+                
     except Exception as e:
-        print(f"FATAL ERROR in upload thread: {e}")
+        print(f"ERROR in uploading thread: {e}")
         
     finally:
-        os.remove(temp_video_path)
-        print("INFO (Thread): Upload task finished and temp file deleted.")
-
+        if temp_video_path and isinstance(temp_video_path, str) and os.path.exists(temp_video_path):
+            
+            try:
+                os.remove(temp_video_path)
+                print("INFO (Thread): Temporary video file removed.") 
+            
+            except Exception as cleanup_error:
+                print(f"ERROR removing temp video file: {cleanup_error}")  
+              
 # Camera stream
 def start_camera_stream():
     global output_frame, STREAM_URL, last_frame_time, last_api_call_time
