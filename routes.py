@@ -89,19 +89,33 @@ def final_upload_and_update(temp_video_path, violation_docs):
 
 # Camera stream
 def start_camera_stream():
-    global output_frame, STREAM_URL
+    global output_frame, STREAM_URL, last_frame_time, last_api_call_time
     
     # Use the sub-stream (102) and force TCP for stability
     # Ensure STREAM_URL in Render is: rtsp://user:pass@url.../Streaming/Channels/102
     # And set OPENCV_FFMPEG_CAPTURE_OPTIONS = rtsp_transport;tcp in Render env
     
     print(f"Starting background stream from: {STREAM_URL}")
-    cap = cv2.VideoCapture(STREAM_URL)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    time.sleep(2.0)
+    cap = None
 
     while True:
-        if cap.isOpened():
+        current_time = time.time()
+        
+        if (current_time - last_api_call_time) > 10.0:
+            if cap is not None:
+                print("Use inactive. Waiting for API calls...")
+                cap.release()
+                cap = None
+            time.sleep(1.0)
+            continue
+        
+        if cap is None or not cap.isOpened():
+            print("User active. Opening camera stream...")
+            cap = cv2.VideoCapture(STREAM_URL)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            time.sleep(2.0)
+            
+        if cap is not None and cap.isOpened():
             ret, frame = cap.read()
             if ret:
                 with lock:
@@ -110,14 +124,10 @@ def start_camera_stream():
             else:
                 print("Lost connection to camera. Reconnecting...")
                 cap.release()
+                cap = None
                 time.sleep(2)
-                cap = cv2.VideoCapture(STREAM_URL)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         else:
-            print("Camera not open. Retrying...")
             time.sleep(2)
-            cap = cv2.VideoCapture(STREAM_URL)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 #AI detection
 def start_detction_loop():
