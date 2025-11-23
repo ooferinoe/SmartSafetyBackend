@@ -26,6 +26,9 @@ output_frame = None
 last_frame_time =0
 last_api_call_time = 0
 lock = threading.Lock()
+detection_lock = threading.Lock()
+is_on_cooldown = False
+COOLDOWN_SECONDS = 20  # You can set this via env or config if needed
 
 # Firebase initialization
 cred = credentials.Certificate(FIREBASE_CRED_PATH)
@@ -172,23 +175,42 @@ detectionLoop.start()
 # Endpoints
 @router.get("/detect_ipcam")
 def detect_ipcam(background_tasks: BackgroundTasks):
-    global latest_webcam_detection, last_api_call_time
-    
+    global latest_webcam_detection, last_api_call_time, is_on_cooldown, detection_lock
     last_api_call_time = time.time()
-    
-    if latest_webcam_detection is None:
+
+    # Try to acquire the lock non-blocking
+    acquired = detection_lock.acquire(blocking=False)
+    if not acquired or is_on_cooldown:
+        if acquired:
+            try:
+                detection_lock.release()
+            except RuntimeError:
+                pass
         return JSONResponse({
             "violations_stored": 0,
             "unresolved": [],
             "detections": [],
             "width": 1920,
-            "height": 1080
-        })
-    
+            "height": 1080,
+            "message": "System is on cooldown or busy."
+        }, status_code=429)
+
     try:
+        if latest_webcam_detection is None:
+            try:
+                detection_lock.release()
+            except RuntimeError:
+                pass
+            return JSONResponse({
+                "violations_stored": 0,
+                "unresolved": [],
+                "detections": [],
+                "width": 1920,
+                "height": 1080
+            })
+
         result = process_frame_from_model_response(latest_webcam_detection, background_tasks=background_tasks)
         violations = result.get("violations", [])
-        
         for v in violations:
             logger.info(
                 "Unresolved violation: type=%s confidence=%s id=%s camera=%s",
@@ -197,6 +219,28 @@ def detect_ipcam(background_tasks: BackgroundTasks):
                 v.get("violationId"),
                 v.get("footageId") or v.get("camera_id", CAMERA_ID),
             )
+        # Set cooldown flag while we hold the lock
+        is_on_cooldown = True
+        # Start background upload and cooldown release
+        def upload_and_release(temp_video_path, violation_ids):
+            final_upload_and_update(temp_video_path, violation_ids)
+            # Enforce cooldown period and then release the detection lock
+            try:
+                print(f"INFO: Starting {COOLDOWN_SECONDS}-second cooldown.")
+                time.sleep(COOLDOWN_SECONDS)
+            except Exception as e:
+                print(f"WARN: cooldown sleep interrupted: {e}")
+            finally:
+                is_on_cooldown = False
+                try:
+                    if detection_lock.locked():
+                        detection_lock.release()
+                except RuntimeError:
+                    pass
+                print("INFO: Cooldown finished. System is ready.")
+        # If you have a video upload, call background_tasks.add_task(upload_and_release, ...)
+        # Otherwise, release lock immediately after response
+        background_tasks.add_task(upload_and_release, None, [])  # You may need to pass actual args
         return JSONResponse({
             "violations_stored": result.get("violations_stored", 0),
             "unresolved": [v.get("violationType") or v.get("type") for v in violations],
@@ -204,10 +248,14 @@ def detect_ipcam(background_tasks: BackgroundTasks):
             "width": latest_webcam_detection.get("width", 1920),
             "height": latest_webcam_detection.get("height", 1080)
         })
-        
     except Exception as e:
         logger.exception("detect_ipcam: processing failed")
-
+        is_on_cooldown = False
+        try:
+            if detection_lock.locked():
+                detection_lock.release()
+        except RuntimeError:
+            pass
         return JSONResponse({
             "violations_stored": 0,
             "unresolved": [],
