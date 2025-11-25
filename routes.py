@@ -1,17 +1,35 @@
-import logging, time, threading, cv2, numpy as np, os
-import firebase_admin
-import cloudinary, cloudinary.uploader
-import tempfile, smtplib
-from config import STREAM_URL, CAMERA_ID, MODEL_SERVICE_URL, FIREBASE_CRED_PATH
-from config import CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
-from config import BREVO_USER, BREVO_PASS, BREVO_SENDER
-from datetime import datetime, timezone
+import logging
+import os
+import smtplib
+import tempfile
+import threading
+import time
+from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import cloudinary
+import cloudinary.uploader
+import cv2
+import firebase_admin
+import numpy as np
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from firebase_admin import credentials, firestore
 from pydantic import BaseModel
+
+from config import (
+    BREVO_PASS,
+    BREVO_SENDER,
+    BREVO_USER,
+    CAMERA_ID,
+    CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET,
+    CLOUDINARY_CLOUD_NAME,
+    FIREBASE_CRED_PATH,
+    MODEL_SERVICE_URL,
+    STREAM_URL,
+)
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
 
@@ -408,3 +426,55 @@ async def update_violation_status(violation_id: str, payload: StatusUpdate):
 @router.get("/health")
 def health_check():
     return JSONResponse({"status": "healthy"})
+
+# --- Weekly Violation Stats Endpoint ---
+@router.get("/violations/weekly-stats")
+def get_weekly_violation_stats():
+    """
+    Returns violation counts by type and total for the current week.
+    """
+    now = datetime.utcnow()
+    start_of_week = now - timedelta(days=now.weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+    violations_ref = db.collection("violations")
+    query = violations_ref.where("timestamp", ">=", start_of_week.isoformat())
+    docs = query.stream()
+    type_counts = {}
+    total_count = 0
+    for doc in docs:
+        data = doc.to_dict()
+        vtype = data.get("violationType", "Unknown")
+        type_counts[vtype] = type_counts.get(vtype, 0) + 1
+        total_count += 1
+    return JSONResponse({
+        "byType": type_counts,
+        "total": total_count
+    })
+
+# --- Weekly Confidence Endpoint ---
+@router.get("/violations/weekly-confidence")
+def get_weekly_confidence():
+    """
+    Returns average confidence and detection count for the current week.
+    """
+    now = datetime.utcnow()
+    start_of_week = now - timedelta(days=now.weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+    violations_ref = db.collection("violations")
+    query = violations_ref.where("timestamp", ">=", start_of_week.isoformat())
+    docs = query.stream()
+    confidences = []
+    for doc in docs:
+        data = doc.to_dict()
+        conf = data.get("confidence")
+        if conf is not None:
+            try:
+                confidences.append(float(conf))
+            except Exception:
+                pass
+    detection_count = len(confidences)
+    avg_confidence = round(sum(confidences) / detection_count, 2) if detection_count > 0 else 0.0
+    return JSONResponse({
+        "averageConfidence": avg_confidence,
+        "detectionCount": detection_count
+    })

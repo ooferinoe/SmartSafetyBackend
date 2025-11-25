@@ -88,8 +88,6 @@ def normalize_detections(resp):
         else:
             continue
 
-
-
         out.append({
             "name": name,
             "confidence": conf,
@@ -99,7 +97,6 @@ def normalize_detections(resp):
             "ymax": float(ymax)
         })
     return out
-
 
 def process_frame_from_model_response(model_resp: dict, background_tasks=None, dedupe_window_seconds: int = 30):
     """
@@ -135,7 +132,6 @@ def process_frame_from_model_response(model_resp: dict, background_tasks=None, d
                 "bbox": [det["xmin"], det["ymin"], det["xmax"], det["ymax"]],
                 "timestamp": now_iso,
                 "camera_id": CAMERA_ID,
-                # optional front-end friendly aliases
                 "violationType": det["name"],
                 "footageId": CAMERA_ID
             }
