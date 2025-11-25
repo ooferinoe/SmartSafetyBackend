@@ -454,6 +454,31 @@ def get_weekly_violation_stats():
         "total": total_count
     })
 
+# --- Daily Violation Stats Endpoint ---
+@router.get("/violations/daily-stats")
+def get_daily_violation_stats():
+    """
+    Returns violation counts by type and total for today only.
+    """
+    now = datetime.utcnow()
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_day.isoformat()))
+
+    docs = query.stream()
+    type_counts = {}
+    total_count = 0
+
+    for doc in docs:
+        data = doc.to_dict()
+        vtype = data.get("violationType", "Unknown")
+        type_counts[vtype] = type_counts.get(vtype, 0) + 1
+        total_count += 1
+
+    return JSONResponse({
+        "byType": type_counts,
+        "total": total_count
+    })
+
 # --- Weekly Confidence Endpoint ---
 @router.get("/violations/weekly-confidence")
 def get_weekly_confidence():
