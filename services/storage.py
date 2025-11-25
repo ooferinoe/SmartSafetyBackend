@@ -128,3 +128,11 @@ def add_violation(doc: dict, dedupe_window_seconds: int = 30):
 
 def query_violations_by_timestamp(ts_iso: str):
     return violations_ref.where("timestamp", "==", ts_iso).get()
+
+def increment_daily_scans(count: int):
+    today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    stats_ref = db.collection("stats").document(today_str)
+
+    stats_ref.set({
+        "total_scans": firestore.Increment(count), "date": today_str
+    }, merge=True)

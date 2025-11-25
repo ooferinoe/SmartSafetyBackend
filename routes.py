@@ -32,6 +32,7 @@ from config import (
 )
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
+from services.storage import add_violation, query_violaitons_by_timestamp, increment_daily_scans
 from google.cloud.firestore import FieldFilter
 
 # Cloudinary config
@@ -176,6 +177,9 @@ def start_detection_loop():
     print(f"Starting detection loop pointing to: {MODEL_SERVICE_URL}")
     
     last_processed_time = 0
+
+    scan_buffer = 0
+    BATCH_SIZE = 50
     
     while True:
         current_time = time.time()
@@ -202,6 +206,18 @@ def start_detection_loop():
         if frame_to_process is not None:
             try:
                 result = predict_frame_via_service(MODEL_SERVICE_URL, frame_to_process)
+                if result:
+                    scan_buffer += 1
+
+                    if scan_buffer >= BATCH_SIZE:
+                        try:
+                            increment_daily_scans(scan_buffer)
+                            print(f"INFO: Incremented daily scans by {scan_buffer}.")
+                            scan_buffer = 0
+                        except Exception as e:
+                            print(f"ERROR incrementing daily scans: {e}")
+
+
                 if result and not result.get("error"):
                     detections = result.get("detections", [])
                     for det in detections:
@@ -507,4 +523,45 @@ def get_weekly_confidence():
     return JSONResponse({
         "averageConfidence": avg_confidence,
         "detectionCount": detection_count
+    })
+
+@router.get("/compliance/daily-rate")
+def get_daily_compliance_rate():
+    """
+    Returns compliance rate for today.
+    """
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    stats_doc = db.collection("stats").document(today_str).get()
+    if not stats_doc.exists:
+        return JSONResponse({
+            "compliance_rate": 100.0,
+            "total_scans": 0,
+            "violation_count":0
+        })
+    
+    total_scans = stats_doc.to_dict().get("total_scans", 0)
+
+    if total_scans == 0:
+        return JSONResponse({
+            "compliance_rate": 100.0,
+            "total_scans": 0,
+            "violation_count":0
+        })
+    
+    now = datetime.utcnow()
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_day.isoformat()))
+    violations = len(list(query.stream()))
+
+    if violations > total_scans:
+        compliance_rate = 0.0
+    else:
+        compliance_rate = (1 - (violations / total_scans)) * 100.0
+
+    return JSONResponse({
+        "date": today_str,
+        "compliance_rate": round(compliance_rate, 2),
+        "total_scans": total_scans,
+        "violation_count": violations
     })
