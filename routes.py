@@ -125,8 +125,8 @@ def final_upload_and_update(temp_video_path, violation_docs):
                     doc_ref.update({"footageUrl": footage_url})
                     snapshot = doc_ref.get()
                     
-                    if snapshot.exists and not snapshot.to.dict().get("alertSent"):
-                        send_email_alert_from_backend(snapshot.to.dict(), footage_url)
+                    if snapshot.exists and not snapshot.to_dict().get("alertSent"):
+                        send_email_alert_from_backend(snapshot.to_dict(), footage_url)
             else:
                 print("INFO (Thread): Cooldown trigger only. No footage URL generated.")
                 
@@ -157,7 +157,7 @@ def start_camera_stream():
         
         if (current_time - last_api_call_time) > 10.0:
             if cap is not None:
-                print("Use inactive. Waiting for API calls...")
+                print("User inactive. Waiting for API calls...")
                 cap.release()
                 cap = None
             time.sleep(1.0)
