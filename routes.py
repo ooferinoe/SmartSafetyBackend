@@ -22,7 +22,6 @@ from config import (
     BREVO_PASS,
     BREVO_SENDER,
     BREVO_USER,
-    CAMERA_ID,
     CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET,
     CLOUDINARY_CLOUD_NAME,
@@ -32,7 +31,7 @@ from config import (
 )
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
-from services.storage import add_violation, query_violaitons_by_timestamp, increment_daily_scans
+from services.storage import increment_daily_scans
 from google.cloud.firestore import FieldFilter
 
 # Cloudinary config
@@ -54,7 +53,17 @@ last_api_call_time = 0
 lock = threading.Lock()
 detection_lock = threading.Lock()
 is_on_cooldown = False
-COOLDOWN_SECONDS = 20  # You can set this via env or config if needed
+COOLDOWN_SECONDS = 20  # adjust if needed
+
+# caching
+cached_stats = None
+last_status_update = 0
+
+cached_confidence_data = None
+last_confidence_update = 0
+
+cached_compliance_data = None
+last_compliance_update = 0
 
 # Firebase initialization
 cred = credentials.Certificate(FIREBASE_CRED_PATH)
@@ -66,13 +75,15 @@ db = firestore.client()
 def send_email_alert_from_backend(violation_data, footage_url):
     violation_id = violation_data.get("violationId")
     to_email = (violation_data.get("alertSentTo") or [])[0] if violation_data.get("alertSentTo") else None
-    if not to_email: return
+    if not to_email:
+        return
+    
     subject = f"Violation Alert: {violation_data.get('violationType')}"
     # Format the timestamp string for the email body.
     try:
         ts = violation_data.get('timestamp')
         if ts:
-            timestamp_dt = datetime.datetime.fromisoformat(violation_data.get('timestamp'))
+            timestamp_dt = datetime.fromisoformat(violation_data.get('timestamp'))
             formatted_datetime = timestamp_dt.strftime("%m/%d/%Y, %I:%M:%S %p")
         else:
             formatted_datetime = "Unknown Time"
@@ -81,21 +92,22 @@ def send_email_alert_from_backend(violation_data, footage_url):
         formatted_datetime = violation_data.get('timestamp') or ''
         
     body = f"Hello Safety Officer,\n\nA new PPE violation has been detected.\n\nViolation: {violation_data.get('violationType')}\nConfidence: {violation_data.get('confidence')}%\nDate & Time: {formatted_datetime}\n- View Footage: {footage_url}\nThis violation has been logged into the SmartSafety system.\n\n\nPlease take appropriate action.\n\nStay safe,\nSmartSafety Monitoring System"
-    msg = MIMEMultipart(); 
+    msg = MIMEMultipart()
     sender_name = "SmartSafety Alerts System"
     sender_email = BREVO_SENDER
     msg['From'] = f"{sender_name} <{sender_email}>"
-    msg['To'] = to_email; 
-    msg['Subject'] = subject; 
+    msg['To'] = to_email
+    msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
     try:
         with smtplib.SMTP("smtp-relay.brevo.com", 587) as smtp: 
             smtp.starttls() 
-            smtp.login(BREVO_USER, BREVO_PASS); 
+            smtp.login(BREVO_USER, BREVO_PASS)
             smtp.send_message(msg)
         print(f"INFO: Email sent for violation {violation_id}")
         db.collection("violations").document(violation_id).update({"alertSent": True})
-    except Exception as e: print(f"ERROR sending email for {violation_id}: {e}")
+    except Exception as e: 
+        print(f"ERROR sending email for {violation_id}: {e}")
 
 #Cloudinary upload
 def final_upload_and_update(temp_video_path, violation_docs):
@@ -450,6 +462,11 @@ def get_weekly_violation_stats():
     """
     Returns violation counts by type and total for the current week.
     """
+    global cached_stats, last_status_update
+
+    if cached_stats and (time.time() - last_status_update) < 300:
+        return JSONResponse(cached_stats)
+
     now = datetime.utcnow()
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -465,35 +482,13 @@ def get_weekly_violation_stats():
         type_counts[vtype] = type_counts.get(vtype, 0) + 1
         total_count += 1
 
-    return JSONResponse({
+    cached_stats = {
         "byType": type_counts,
         "total": total_count
-    })
+    }
+    last_status_update = time.time()
 
-# Daily Violation Stats
-@router.get("/violations/daily-stats")
-def get_daily_violation_stats():
-    """
-    Returns violation counts by type and total for today only.
-    """
-    now = datetime.utcnow()
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_day.isoformat()))
-
-    docs = query.stream()
-    type_counts = {}
-    total_count = 0
-
-    for doc in docs:
-        data = doc.to_dict()
-        vtype = data.get("violationType", "Unknown")
-        type_counts[vtype] = type_counts.get(vtype, 0) + 1
-        total_count += 1
-
-    return JSONResponse({
-        "byType": type_counts,
-        "total": total_count
-    })
+    return JSONResponse(cached_stats)
 
 # Weekly Confidence
 @router.get("/violations/weekly-confidence")
@@ -501,7 +496,12 @@ def get_weekly_confidence():
     """
     Returns average confidence and detection count for the current week.
     """
-    now = datetime.utcnow()
+    global cached_confidence_data, last_confidence_update
+
+    if cached_confidence_data and (time.time() - last_confidence_update) < 300:
+        return JSONResponse(cached_confidence_data)
+
+    now = datetime.utcnow()    
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
     query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_week.isoformat()))
@@ -519,20 +519,29 @@ def get_weekly_confidence():
 
     detection_count = len(confidences)
     avg_confidence = round(sum(confidences) / detection_count, 2) if detection_count > 0 else 0.0
-    
-    return JSONResponse({
+
+    cached_confidence_data = {
         "averageConfidence": avg_confidence,
         "detectionCount": detection_count
-    })
+    }
+    last_confidence_update = time.time()
+    
+    return JSONResponse(cached_confidence_data)
 
 @router.get("/compliance/daily-rate")
 def get_daily_compliance_rate():
     """
     Returns compliance rate for today.
     """
+    global cached_compliance_data, last_compliance_update
+
+    if cached_compliance_data and (time.time() - last_compliance_update) < 300:
+        return JSONResponse(cached_compliance_data)
+    
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
 
     stats_doc = db.collection("stats").document(today_str).get()
+
     if not stats_doc.exists:
         return JSONResponse({
             "compliance_rate": 100.0,
@@ -540,28 +549,35 @@ def get_daily_compliance_rate():
             "violation_count":0
         })
     
-    total_scans = stats_doc.to_dict().get("total_scans", 0)
-
-    if total_scans == 0:
-        return JSONResponse({
-            "compliance_rate": 100.0,
-            "total_scans": 0,
-            "violation_count":0
-        })
-    
-    now = datetime.utcnow()
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_day.isoformat()))
-    violations = len(list(query.stream()))
-
-    if violations > total_scans:
-        compliance_rate = 0.0
     else:
-        compliance_rate = (1 - (violations / total_scans)) * 100.0
+        total_scans = stats_doc.to_dict().get("total_scans", 0)
 
-    return JSONResponse({
-        "date": today_str,
-        "compliance_rate": round(compliance_rate, 2),
-        "total_scans": total_scans,
-        "violation_count": violations
-    })
+        if total_scans == 0:
+            return JSONResponse({
+                "compliance_rate": 100.0,
+                "total_scans": 0,
+                "violation_count":0
+            })
+        
+        else:
+            now = datetime.utcnow()
+            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_day.isoformat()))
+            violations = len(list(query.stream()))
+
+            if violations > total_scans:
+                compliance_rate = 0.0
+            else:
+                compliance_rate = (1 - (violations / total_scans)) * 100.0
+
+            response_data = {
+                "date": today_str,
+                "compliance_rate": round(compliance_rate, 2),
+                "total_scans": total_scans,
+                "violation_count": violations
+            }
+    
+    cached_compliance_data = response_data
+    last_compliance_update = time.time()
+    
+    return JSONResponse(cached_compliance_data)
