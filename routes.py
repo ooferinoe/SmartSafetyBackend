@@ -428,7 +428,7 @@ async def update_violation_status(violation_id: str, payload: StatusUpdate):
 def health_check():
     return JSONResponse({"status": "healthy"})
 
-# --- Weekly Violation Stats Endpoint ---
+# Weekly Violation Stats
 @router.get("/violations/weekly-stats")
 def get_weekly_violation_stats():
     """
@@ -454,7 +454,7 @@ def get_weekly_violation_stats():
         "total": total_count
     })
 
-# --- Daily Violation Stats Endpoint ---
+# Daily Violation Stats
 @router.get("/violations/daily-stats")
 def get_daily_violation_stats():
     """
@@ -479,7 +479,7 @@ def get_daily_violation_stats():
         "total": total_count
     })
 
-# --- Weekly Confidence Endpoint ---
+# Weekly Confidence
 @router.get("/violations/weekly-confidence")
 def get_weekly_confidence():
     """
