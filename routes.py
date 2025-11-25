@@ -32,6 +32,7 @@ from config import (
 )
 from services.model_client import predict_frame_via_service
 from services.processor import process_frame_from_model_response
+from google.cloud.firestore import FieldFilter
 
 # Cloudinary config
 cloudinary.config(
@@ -436,16 +437,18 @@ def get_weekly_violation_stats():
     now = datetime.utcnow()
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    violations_ref = db.collection("violations")
-    query = violations_ref.where("timestamp", ">=", start_of_week.isoformat())
+    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_week.isoformat()))
+
     docs = query.stream()
     type_counts = {}
     total_count = 0
+
     for doc in docs:
         data = doc.to_dict()
         vtype = data.get("violationType", "Unknown")
         type_counts[vtype] = type_counts.get(vtype, 0) + 1
         total_count += 1
+
     return JSONResponse({
         "byType": type_counts,
         "total": total_count
@@ -460,10 +463,10 @@ def get_weekly_confidence():
     now = datetime.utcnow()
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    violations_ref = db.collection("violations")
-    query = violations_ref.where("timestamp", ">=", start_of_week.isoformat())
+    query = db.collection("violations").where(filter=FieldFilter("timestamp", ">=", start_of_week.isoformat()))
     docs = query.stream()
     confidences = []
+
     for doc in docs:
         data = doc.to_dict()
         conf = data.get("confidence")
@@ -472,8 +475,10 @@ def get_weekly_confidence():
                 confidences.append(float(conf))
             except Exception:
                 pass
+
     detection_count = len(confidences)
     avg_confidence = round(sum(confidences) / detection_count, 2) if detection_count > 0 else 0.0
+    
     return JSONResponse({
         "averageConfidence": avg_confidence,
         "detectionCount": detection_count
