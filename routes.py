@@ -12,11 +12,11 @@ import cloudinary
 import cloudinary.uploader
 import cv2
 import firebase_admin
-import numpy as np
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import FieldFilter
+from google.cloud.firestore import Avg, Count
 from pydantic import BaseModel
 
 from config import (
@@ -494,6 +494,20 @@ def health_check():
 
 
 # Weekly Violation Stats
+
+KNOWN_VIOLATION_TYPES = [
+    "Improper Hard Hat",
+    "Improper Safety Glasses",
+    "Improper Safety Gloves",
+    "Improper Safety Shoes",
+    "Improper Reflectorized Vest",
+    "Non-PPE Hat",
+    "No Hard Hat",
+    "No Reflectorized Vest",
+    "No Safety Glasses",
+    "No Safety Gloves",
+]
+
 @router.get("/violations/weekly-stats")
 def get_weekly_violation_stats():
     """
@@ -504,22 +518,24 @@ def get_weekly_violation_stats():
     if cached_stats and (time.time() - last_status_update) < 300:
         return JSONResponse(cached_stats)
 
-    now = datetime.utcnow()
-    start_of_week = now - timedelta(days=now.weekday())
+    now = datetime.datetime.utcnow()
+    start_of_week = now - datetime.timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    query = db.collection("violations").where(
+
+    base_query = db.collection("violations").where(
         filter=FieldFilter("timestamp", ">=", start_of_week.isoformat())
     )
 
-    docs = query.stream()
-    type_counts = {}
-    total_count = 0
+    total_count = base_query.count().get()[0][0].value
 
-    for doc in docs:
-        data = doc.to_dict()
-        vtype = data.get("violationType", "Unknown")
-        type_counts[vtype] = type_counts.get(vtype, 0) + 1
-        total_count += 1
+    type_counts = {}
+
+    for v_type in KNOWN_VIOLATION_TYPES:
+        type_q = base_query.where(filter=FieldFilter("violationType", "==", v_type))
+        count = type_q.count().get()[0][0].value
+
+        if count > 0:
+            type_counts[v_type] = count
 
     cached_stats = {"byType": type_counts, "total": total_count}
     last_status_update = time.time()
@@ -538,33 +554,32 @@ def get_weekly_confidence():
     if cached_confidence_data and (time.time() - last_confidence_update) < 300:
         return JSONResponse(cached_confidence_data)
 
-    now = datetime.utcnow()
+    now = datetime.datetime.utcnow()
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+
     query = db.collection("violations").where(
         filter=FieldFilter("timestamp", ">=", start_of_week.isoformat())
     )
-    docs = query.stream()
-    confidences = []
 
-    for doc in docs:
-        data = doc.to_dict()
-        conf = data.get("confidence")
-        if conf is not None:
-            try:
-                confidences.append(float(conf))
-            except Exception:
-                pass
-
-    detection_count = len(confidences)
-    avg_confidence = (
-        round(sum(confidences) / detection_count, 2) if detection_count > 0 else 0.0
+    aggregate_query = query.aggregate(
+        Count(alias="total_count"), Avg("confidence", alias="avg_conf")
     )
+    results = aggregate_query.get()
+
+    detection_count = results[0].value
+    avg_confidence_val = results[1].value
+
+    if avg_confidence_val is None or detection_count == 0:
+        avg_confidence = 0.0
+    else:
+        avg_confidence = round(avg_confidence_val, 2)
 
     cached_confidence_data = {
         "averageConfidence": avg_confidence,
         "detectionCount": detection_count,
     }
+
     last_confidence_update = time.time()
 
     return JSONResponse(cached_confidence_data)
@@ -580,44 +595,39 @@ def get_daily_compliance_rate():
     if cached_compliance_data and (time.time() - last_compliance_update) < 300:
         return JSONResponse(cached_compliance_data)
 
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-
+    today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     stats_doc = db.collection("stats").document(today_str).get()
 
     if not stats_doc.exists:
-        return JSONResponse(
-            {"compliance_rate": 100.0, "total_scans": 0, "violation_count": 0}
-        )
+        return JSONResponse(total_scans=0)
 
     else:
         total_scans = stats_doc.to_dict().get("total_scans", 0)
 
+        now = datetime.datetime.utcnow()
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        query = db.collection("violations").where(
+            filter=FieldFilter("timestamp", ">=", start_of_day.isoformat())
+        )
+        aggregate_query = query.count()
+        results = aggregate_query.get()
+        violations_count = results[0][0].value
+
         if total_scans == 0:
-            return JSONResponse(
-                {"compliance_rate": 100.0, "total_scans": 0, "violation_count": 0}
-            )
-
+            compliance_rate = 100.0
+        elif violations_count > total_scans:
+            compliance_rate = 0.0
         else:
-            now = datetime.utcnow()
-            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            query = db.collection("violations").where(
-                filter=FieldFilter("timestamp", ">=", start_of_day.isoformat())
-            )
-            violations = len(list(query.stream()))
+            compliance_rate = (1 - (violations_count / total_scans)) * 100.0
 
-            if violations > total_scans:
-                compliance_rate = 0.0
-            else:
-                compliance_rate = (1 - (violations / total_scans)) * 100.0
+        cached_compliance_data = {
+            "date": today_str,
+            "compliance_rate": round(compliance_rate, 2),
+            "total_scans": total_scans,
+            "violation_count": violations_count,
+        }
 
-            response_data = {
-                "date": today_str,
-                "compliance_rate": round(compliance_rate, 2),
-                "total_scans": total_scans,
-                "violation_count": violations,
-            }
-
-    cached_compliance_data = response_data
     last_compliance_update = time.time()
 
     return JSONResponse(cached_compliance_data)

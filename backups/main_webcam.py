@@ -1,9 +1,15 @@
-from fastapi import FastAPI, UploadFile, File
-import uvicorn, asyncio, cv2, os, numpy as np
+import asyncio
+import os
+from contextlib import asynccontextmanager
+
+import cv2
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+
 from backups.routes_old import router
 from services.model_client import predict_frame_via_service
-from contextlib import asynccontextmanager
 
 # async def run_model_detection(image_bytes):
 #     nparr = np.frombuffer(image_bytes, np.uint8)
@@ -25,7 +31,7 @@ from contextlib import asynccontextmanager
 #         _, image_bytes = cv2.imencode('.jpg', frame)
 #         await run_model_detection(image_bytes.tobytes())
 #         await asyncio.sleep(0.5)
-        
+
 # @asynccontextmanager
 # async def lifespan(app: FastAPI):
 #     # Startup logic
@@ -34,7 +40,7 @@ from contextlib import asynccontextmanager
 #     asyncio.create_task(monitor_camera_stream(PRODUCTION_CAMERA_URL))
 #     yield
 #     # Shutdown logic (if needed)
-    
+
 app = FastAPI()
 
 origins = ["https://smartsafetystg.netlify.app"]
@@ -60,5 +66,6 @@ app.include_router(router)
 
 if __name__ == "__main__":
     import os
+
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
